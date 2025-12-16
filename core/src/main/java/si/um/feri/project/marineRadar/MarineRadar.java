@@ -32,8 +32,9 @@ public class MarineRadar extends ApplicationAdapter {
     public void render() {
         handleInput();
 
-        Gdx.gl.glClearColor(1, 1, 1, 1);
+        Gdx.gl.glClearColor(0.0039f, 0.6431f, 0.9137f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+
 
         camera.update();
         map.render();

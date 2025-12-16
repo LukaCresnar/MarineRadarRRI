@@ -5,6 +5,7 @@ import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.Vector2;
+import com.badlogic.gdx.utils.ShortArray;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 
@@ -16,6 +17,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.badlogic.gdx.math.EarClippingTriangulator;
+
+
+
 public class VectorMapRenderer {
 
     private float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
@@ -26,6 +31,9 @@ public class VectorMapRenderer {
 
     public OrthographicCamera camera;
     public Viewport viewport;
+
+    private EarClippingTriangulator triangulator = new EarClippingTriangulator();
+
 
     public VectorMapRenderer(OrthographicCamera camera, float screenWidth, float screenHeight) {
         this.camera = camera;
@@ -109,18 +117,42 @@ public class VectorMapRenderer {
         return new Vector2((float) x, (float) y);
     }
 
+
     public void render() {
         shapeRenderer.setProjectionMatrix(camera.combined);
+
+        // Fill with white
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(Color.WHITE);
+
+        for (float[] verts : polygons) {
+            if (verts.length >= 6) {
+                // Triangulate the polygon properly
+                ShortArray triangles = triangulator.computeTriangles(verts);
+
+                // Draw each triangle
+                for (int i = 0; i < triangles.size; i += 3) {
+                    int p1 = triangles.get(i) * 2;
+                    int p2 = triangles.get(i + 1) * 2;
+                    int p3 = triangles.get(i + 2) * 2;
+
+                    shapeRenderer.triangle(
+                        verts[p1], verts[p1 + 1],
+                        verts[p2], verts[p2 + 1],
+                        verts[p3], verts[p3 + 1]
+                    );
+                }
+            }
+        }
+
+        shapeRenderer.end();
+
+        // Draw black outline
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         shapeRenderer.setColor(Color.BLACK);
 
         for (float[] verts : polygons) {
-            for (int i = 0; i < verts.length - 2; i += 2) {
-                shapeRenderer.line(
-                    verts[i], verts[i + 1],
-                    verts[i + 2], verts[i + 3]
-                );
-            }
+            shapeRenderer.polygon(verts);
         }
 
         shapeRenderer.end();
