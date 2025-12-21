@@ -43,6 +43,15 @@ dependencies {
     }
 }
 
+dependencies {
+  implementation "com.badlogicgames.gdx:gdx:$gdxVersion"
+  implementation "com.badlogicgames.gdx:gdx-backend-lwjgl3:$gdxVersion"
+  implementation "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
+
+  // For JSON parsing (ship data)
+  implementation 'org.json:json:20230227'
+}
+
 def os = System.properties['os.name'].toLowerCase()
 
 run {
