@@ -11,3 +11,17 @@ dependencies {
     implementation "io.github.berstanio:gdx-svmhelper-annotations:$graalHelperVersion"
   }
 }
+
+dependencies {
+  implementation "com.badlogicgames.gdx:gdx:$gdxVersion"
+  implementation "com.badlogicgames.gdx:gdx-backend-lwjgl3:$gdxVersion"
+  implementation "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
+
+  // For JSON parsing (AIS data)
+  implementation 'org.json:json:20230227'
+
+  // For WebSocket connection to AISStream.io
+  implementation 'org.java-websocket:Java-WebSocket:1.5.3'
+  // SLF4J logging (optional, removes warning)
+  implementation 'org.slf4j:slf4j-simple:2.0.9'
+}
