@@ -165,37 +165,40 @@ public class ShipDataFetcher {
         try {
             JSONObject root = new JSONObject(json);
 
-            // Check if it's a position report
+            // Check message type
             if (!root.has("MessageType")) {
                 return;
             }
 
             String messageType = root.getString("MessageType");
+
+            // We only care about PositionReport messages
             if (!messageType.equals("PositionReport")) {
                 return;
             }
 
-            // Extract message data
+            // Get the Message object
             if (!root.has("Message")) {
                 return;
             }
 
             JSONObject message = root.getJSONObject("Message");
 
+            // Get PositionReport object
             if (!message.has("PositionReport")) {
                 return;
             }
 
             JSONObject positionReport = message.getJSONObject("PositionReport");
 
-            // Extract MMSI
-            if (!message.has("UserID")) {
+            // Extract UserID (MMSI) from PositionReport, not Message
+            if (!positionReport.has("UserID")) {
                 return;
             }
 
-            String mmsi = String.valueOf(message.getInt("UserID"));
+            String mmsi = String.valueOf(positionReport.getInt("UserID"));
 
-            // Extract position
+            // Extract coordinates
             if (!positionReport.has("Latitude") || !positionReport.has("Longitude")) {
                 return;
             }
@@ -208,53 +211,59 @@ public class ShipDataFetcher {
             if (Double.isNaN(lat) || Double.isNaN(lon)) return;
             if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
 
-            // Extract additional data
+            // Extract navigation data
             float speed = (float) positionReport.optDouble("Sog", 0.0);
             float course = (float) positionReport.optDouble("Cog", 0.0);
             float heading = (float) positionReport.optDouble("TrueHeading", course);
 
-            // Update ship on GL thread
+            // Get ship name from MetaData if available
+            String shipName = "Unknown";
+            String shipType = "Unknown";
+
+            if (root.has("MetaData")) {
+                try {
+                    JSONObject metadata = root.getJSONObject("MetaData");
+                    String name = metadata.optString("ShipName", "").trim();
+
+                    if (!name.isEmpty() && !name.equals("Unknown")) {
+                        shipName = name;
+                    }
+
+                    // Note: ShipType is usually in static data, not metadata
+                } catch (Exception e) {
+                    // Ignore metadata errors
+                }
+            }
+
+            // Final values for the lambda
             final String finalMmsi = mmsi;
             final double finalLat = lat;
             final double finalLon = lon;
             final float finalSpeed = speed;
             final float finalCourse = course;
             final float finalHeading = heading;
+            final String finalShipName = shipName;
+            final String finalShipType = shipType;
 
+            // Update on GL thread
             Gdx.app.postRunnable(() -> {
                 Ship ship = shipMap.get(finalMmsi);
 
                 if (ship == null) {
-                    // New ship
+                    // New ship discovered
                     ship = new Ship(finalMmsi, finalLat, finalLon);
+                    ship.name = finalShipName;
+                    ship.type = finalShipType;
                     ship.speed = finalSpeed;
                     ship.course = finalCourse;
                     ship.heading = finalHeading;
-
-                    // Try to get metadata
-                    if (root.has("MetaData")) {
-                        try {
-                            JSONObject metadata = root.getJSONObject("MetaData");
-                            String shipName = metadata.optString("ShipName", "").trim();
-                            String shipType = metadata.optString("ShipType", "").trim();
-
-                            if (!shipName.isEmpty() && !shipName.equals("Unknown")) {
-                                ship.name = shipName;
-                            }
-                            if (!shipType.isEmpty() && !shipType.equals("Unknown")) {
-                                ship.type = shipType;
-                            }
-                        } catch (Exception e) {
-                            // Ignore metadata errors
-                        }
-                    }
 
                     ships.add(ship);
                     shipMap.put(finalMmsi, ship);
 
                     Gdx.app.log("ShipDataFetcher", String.format(
-                        "New ship: %s (%s) at (%.4f, %.4f) - Total: %d",
-                        ship.name, finalMmsi, finalLat, finalLon, ships.size()
+                        "NEW SHIP #%d: %s (%s) at (%.4f, %.4f) - Speed: %.1f knots",
+                        ships.size(), ship.name, finalMmsi, finalLat, finalLon, finalSpeed
                     ));
                 } else {
                     // Update existing ship
@@ -264,6 +273,9 @@ public class ShipDataFetcher {
 
         } catch (Exception e) {
             Gdx.app.error("ShipDataFetcher", "Error parsing AIS message: " + e.getMessage());
+            if (Gdx.app.getLogLevel() == com.badlogic.gdx.Application.LOG_DEBUG) {
+                e.printStackTrace();
+            }
         }
     }
 
