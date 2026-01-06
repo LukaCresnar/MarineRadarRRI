@@ -21,6 +21,7 @@ public class CloudsLayer {
     private Texture cloudTexture;
     private Random random;
     private int lastZoomLevel = -1;
+    private boolean cloudsVisible = true;
     
     public CloudsLayer() {
         this.random = new Random(42);
@@ -60,8 +61,8 @@ public class CloudsLayer {
     }
     
     public void render(com.badlogic.gdx.graphics.g2d.SpriteBatch batch, int zoomLevel, int worldSize) {
-        // Only show clouds at zoom levels 1-4
-        if (zoomLevel > 4) {
+        // Only show clouds at zoom levels 1-4 and if visibility is enabled
+        if (zoomLevel > 4 || !cloudsVisible) {
             return;
         }
         
@@ -99,5 +100,13 @@ public class CloudsLayer {
         if (cloudTexture != null) {
             cloudTexture.dispose();
         }
+    }
+    
+    public void setVisible(boolean visible) {
+        this.cloudsVisible = visible;
+    }
+    
+    public boolean isVisible() {
+        return cloudsVisible;
     }
 }

@@ -145,16 +145,24 @@ public class MarineRadar extends ApplicationAdapter {
                 }
             }
         });
+        
+        TextButton toggleCloudsButton = new TextButton("Toggle Clouds", skin);
+        toggleCloudsButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                map.toggleClouds();
+            }
+        });
 
         buttonTable.add(helpButton).pad(5);
         buttonTable.add(radarToggle).pad(5);
         buttonTable.add(centerButton).pad(5);
         buttonTable.add(toggleSearchButton).pad(5);
+        buttonTable.add(toggleCloudsButton).pad(5);
 
         mainTable.add(infoPanel).left().row();
         mainTable.add(buttonTable).left().padTop(10).row();
         
-        // Ship search panel (hidden by default)
         shipSearchPanel = new ShipSearchPanel(ships, skin, new ShipSearchPanel.ShipSelectionListener() {
             @Override
             public void onShipSelected(Ship ship) {

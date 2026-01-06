@@ -489,4 +489,8 @@ public class TileMapRenderer {
 
         Gdx.app.log("TileMapRenderer", "Disposed");
     }
+    
+    public void toggleClouds() {
+        cloudsLayer.setVisible(!cloudsLayer.isVisible());
+    }
 }
