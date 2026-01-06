@@ -82,11 +82,11 @@ public class TileMapRenderer {
 
         int tileStartX = Math.max(0, (int)(left / TILE_SIZE) - 1);
         int tileEndX = Math.min(maxTileCoord, (int)(right / TILE_SIZE) + 1);
-        
+
         // Convert world coordinates to tile Y accounting for the flip
         int tileBottomFlipped = (int)((worldSize - top) / TILE_SIZE) - 1;
         int tileTopFlipped = (int)((worldSize - bottom) / TILE_SIZE) + 1;
-        
+
         int tileStartY = Math.max(0, Math.min(tileBottomFlipped, tileTopFlipped));
         int tileEndY = Math.min(maxTileCoord, Math.max(tileBottomFlipped, tileTopFlipped));
 
@@ -155,6 +155,15 @@ public class TileMapRenderer {
             return;
         }
 
+        // Validate tile coordinates
+        int maxCoord = (1 << zoom) - 1;
+        if (x < 0 || x > maxCoord || y < 0 || y > maxCoord) {
+            Gdx.app.error("TileMapRenderer", "Invalid tile coordinates: zoom=" + zoom + " x=" + x + " y=" + y);
+            loadingTiles.remove(key);
+            failedTiles.add(key);
+            return;
+        }
+
         HttpURLConnection conn = null;
         try {
             String urlStr = String.format(
@@ -167,6 +176,14 @@ public class TileMapRenderer {
             conn.setRequestProperty("User-Agent", "MarineRadar/1.0 LibGDX");
             conn.setConnectTimeout(8000);
             conn.setReadTimeout(8000);
+            
+            // Small delay 
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            
             conn.connect();
 
             int responseCode = conn.getResponseCode();
@@ -258,8 +275,7 @@ public class TileMapRenderer {
         // Apply zoom
         float oldZoom = camera.zoom;
         camera.zoom *= (1 + scrollAmount * 0.1f);
-        // Stricter zoom limits to prevent extreme cases
-        camera.zoom = Math.max(0.5f, Math.min(2f, camera.zoom));
+        camera.zoom = Math.max(0.3f, Math.min(5f, camera.zoom));
         camera.update();
 
         // Get world coordinates after zoom
@@ -269,8 +285,14 @@ public class TileMapRenderer {
         camera.position.x += (worldBefore.x - worldAfter.x);
         camera.position.y += (worldBefore.y - worldAfter.y);
         
-        // Clamp camera position to valid world bounds
-        clampCameraPosition();
+        // Keep camera within world bounds
+        int worldSize = TILE_SIZE * (1 << zoomLevel);
+        float halfWidth = camera.viewportWidth * camera.zoom / 2f;
+        float halfHeight = camera.viewportHeight * camera.zoom / 2f;
+        
+        camera.position.x = Math.max(halfWidth, Math.min(worldSize - halfWidth, camera.position.x));
+        camera.position.y = Math.max(halfHeight, Math.min(worldSize - halfHeight, camera.position.y));
+        
         camera.update();
 
         // Check if zoom level needs to change
@@ -307,7 +329,7 @@ public class TileMapRenderer {
         camera.position.x = ratioX * newWorldSize;
         camera.position.y = ratioY * newWorldSize;
         camera.zoom = 1f;
-        
+
         // Clamp camera position to valid world bounds
         clampCameraPosition();
         camera.update();
@@ -358,18 +380,31 @@ public class TileMapRenderer {
         loadingTiles.removeIf(key -> key.startsWith(zoomToClear + "_"));
     }
 
-    // Web Mercator projection
+    // Web Mercator projection - matches tile coordinate system
+    // NOTE: Tiles use flipped Y (Y=0 at top, Y=max at bottom)
     public Vector2 latLonToPixel(double lat, double lon) {
         // Clamp latitude to valid Mercator range
-        lat = Math.max(-85.0511, Math.min(85.0511, lat));
+        lat = Math.max(-85.05112878, Math.min(85.05112878, lat));
 
-        double n = Math.pow(2, zoomLevel);
+        // Convert to radians
+        double lonRad = Math.toRadians(lon);
         double latRad = Math.toRadians(lat);
 
-        float x = (float)((lon + 180.0) / 360.0 * n * TILE_SIZE);
-        float y = (float)((1.0 - (Math.log(Math.tan(latRad) + (1.0 / Math.cos(latRad))) / Math.PI)) / 2.0 * n * TILE_SIZE);
+        // Standard Mercator projection
+        double x = lonRad + Math.PI;
+        double y = Math.PI - Math.log(Math.tan(Math.PI / 4.0 + latRad / 2.0));
 
-        return new Vector2(x, y);
+        // Scale to tile coordinates
+        double n = Math.pow(2.0, zoomLevel);
+        float pixelX = (float)(x * n * TILE_SIZE / (2.0 * Math.PI));
+        float pixelY = (float)(y * n * TILE_SIZE / (2.0 * Math.PI));
+
+        // Account for Y-axis flip in tile rendering (maxTileCoord - tileY)
+        int maxTileCoord = (1 << zoomLevel) - 1;
+        int worldSize = TILE_SIZE * (1 << zoomLevel);
+        float flippedY = worldSize - pixelY;
+
+        return new Vector2(pixelX, flippedY);
     }
 
     public Vector2 pixelToLatLon(float x, float y) {
@@ -386,18 +421,27 @@ public class TileMapRenderer {
         int worldSize = TILE_SIZE * (1 << zoomLevel);
         float halfWidth = camera.viewportWidth * camera.zoom / 2f;
         float halfHeight = camera.viewportHeight * camera.zoom / 2f;
-        
-        // If viewport is larger than world, center on world
-        if (2 * halfWidth >= worldSize) {
-            camera.position.x = worldSize / 2f;
-        } else {
-            camera.position.x = Math.max(halfWidth, Math.min(worldSize - halfWidth, camera.position.x));
-        }
-        
-        if (2 * halfHeight >= worldSize) {
-            camera.position.y = worldSize / 2f;
-        } else {
-            camera.position.y = Math.max(halfHeight, Math.min(worldSize - halfHeight, camera.position.y));
+
+        // Clamp to prevent showing areas outside the world
+        // Handle both width and height independently
+        if (worldSize > 0) {
+            // Clamp X (width)
+            if (2 * halfWidth >= worldSize) {
+                // Viewport is wider than world - center it
+                camera.position.x = worldSize / 2f;
+            } else {
+                // Clamp to valid bounds
+                camera.position.x = Math.max(halfWidth, Math.min(worldSize - halfWidth, camera.position.x));
+            }
+
+            // Clamp Y (height)
+            if (2 * halfHeight >= worldSize) {
+                // Viewport is taller than world - center it
+                camera.position.y = worldSize / 2f;
+            } else {
+                // Clamp to valid bounds
+                camera.position.y = Math.max(halfHeight, Math.min(worldSize - halfHeight, camera.position.y));
+            }
         }
     }
 
