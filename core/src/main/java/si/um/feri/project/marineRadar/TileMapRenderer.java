@@ -74,18 +74,18 @@ public class TileMapRenderer {
         int maxTileCoord = (1 << zoomLevel) - 1;
         int worldSize = TILE_SIZE * (1 << zoomLevel);
 
-        // Clamp viewport to world bounds to prevent wrapping
-        left = Math.max(0, left);
-        right = Math.min(worldSize, right);
-        bottom = Math.max(0, bottom);
-        top = Math.min(worldSize, top);
+        // Clamp bounds for tile calculation (prevent requesting out-of-bounds tiles)
+        float clampedLeft = Math.max(0, left);
+        float clampedRight = Math.min(worldSize, right);
+        float clampedBottom = Math.max(0, bottom);
+        float clampedTop = Math.min(worldSize, top);
 
-        int tileStartX = Math.max(0, (int)(left / TILE_SIZE) - 1);
-        int tileEndX = Math.min(maxTileCoord, (int)(right / TILE_SIZE) + 1);
+        int tileStartX = Math.max(0, (int)(clampedLeft / TILE_SIZE) - 1);
+        int tileEndX = Math.min(maxTileCoord, (int)(clampedRight / TILE_SIZE) + 1);
 
         // Convert world coordinates to tile Y accounting for the flip
-        int tileBottomFlipped = (int)((worldSize - top) / TILE_SIZE) - 1;
-        int tileTopFlipped = (int)((worldSize - bottom) / TILE_SIZE) + 1;
+        int tileBottomFlipped = (int)((worldSize - clampedTop) / TILE_SIZE) - 1;
+        int tileTopFlipped = (int)((worldSize - clampedBottom) / TILE_SIZE) + 1;
 
         int tileStartY = Math.max(0, Math.min(tileBottomFlipped, tileTopFlipped));
         int tileEndY = Math.min(maxTileCoord, Math.max(tileBottomFlipped, tileTopFlipped));
@@ -272,10 +272,8 @@ public class TileMapRenderer {
         // Get world coordinates before zoom
         Vector3 worldBefore = camera.unproject(new Vector3(mouseX, mouseY, 0));
 
-        // Apply zoom
-        float oldZoom = camera.zoom;
+        // Apply zoom 
         camera.zoom *= (1 + scrollAmount * 0.1f);
-        camera.zoom = Math.max(0.3f, Math.min(5f, camera.zoom));
         camera.update();
 
         // Get world coordinates after zoom
@@ -284,15 +282,6 @@ public class TileMapRenderer {
         // Adjust camera to keep same point under cursor
         camera.position.x += (worldBefore.x - worldAfter.x);
         camera.position.y += (worldBefore.y - worldAfter.y);
-        
-        // Keep camera within world bounds
-        int worldSize = TILE_SIZE * (1 << zoomLevel);
-        float halfWidth = camera.viewportWidth * camera.zoom / 2f;
-        float halfHeight = camera.viewportHeight * camera.zoom / 2f;
-        
-        camera.position.x = Math.max(halfWidth, Math.min(worldSize - halfWidth, camera.position.x));
-        camera.position.y = Math.max(halfHeight, Math.min(worldSize - halfHeight, camera.position.y));
-        
         camera.update();
 
         // Check if zoom level needs to change
@@ -460,6 +449,18 @@ public class TileMapRenderer {
     public void resize(int width, int height) {
         camera.viewportWidth = width;
         camera.viewportHeight = height;
+        
+        // Calculate zoom that fits the entire world in the viewport
+        int worldSize = TILE_SIZE * (1 << zoomLevel);
+        float zoomToFitX = (float) worldSize / width;
+        float zoomToFitY = (float) worldSize / height;
+        float zoomToFit = Math.max(zoomToFitX, zoomToFitY);
+        
+        // If current zoom is too small (showing outside map), adjust camera zoom
+        if (camera.zoom < zoomToFit) {
+            camera.zoom = zoomToFit;
+        }
+        
         camera.update();
     }
 
