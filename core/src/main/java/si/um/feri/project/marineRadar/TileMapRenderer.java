@@ -58,6 +58,9 @@ public class TileMapRenderer {
 
     public void render() {
         frameCounter++;
+        
+        int worldSize = TILE_SIZE * (1 << zoomLevel);
+        
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
 
@@ -72,20 +75,17 @@ public class TileMapRenderer {
 
         // Convert to tile coordinates with generous buffer
         int maxTileCoord = (1 << zoomLevel) - 1;
-        int worldSize = TILE_SIZE * (1 << zoomLevel);
-
-        // Clamp bounds for tile calculation (prevent requesting out-of-bounds tiles)
         float clampedLeft = Math.max(0, left);
         float clampedRight = Math.min(worldSize, right);
         float clampedBottom = Math.max(0, bottom);
         float clampedTop = Math.min(worldSize, top);
 
-        int tileStartX = Math.max(0, (int)(clampedLeft / TILE_SIZE) - 1);
-        int tileEndX = Math.min(maxTileCoord, (int)(clampedRight / TILE_SIZE) + 1);
+        int tileStartX = Math.max(0, Math.min(maxTileCoord, (int)(clampedLeft / TILE_SIZE) - 1));
+        int tileEndX = Math.max(0, Math.min(maxTileCoord, (int)(clampedRight / TILE_SIZE) + 1));
 
         // Convert world coordinates to tile Y accounting for the flip
-        int tileBottomFlipped = (int)((worldSize - clampedTop) / TILE_SIZE) - 1;
-        int tileTopFlipped = (int)((worldSize - clampedBottom) / TILE_SIZE) + 1;
+        int tileBottomFlipped = Math.max(0, Math.min(maxTileCoord, (int)((worldSize - clampedTop) / TILE_SIZE) - 1));
+        int tileTopFlipped = Math.max(0, Math.min(maxTileCoord, (int)((worldSize - clampedBottom) / TILE_SIZE) + 1));
 
         int tileStartY = Math.max(0, Math.min(tileBottomFlipped, tileTopFlipped));
         int tileEndY = Math.min(maxTileCoord, Math.max(tileBottomFlipped, tileTopFlipped));
@@ -129,10 +129,12 @@ public class TileMapRenderer {
 
         // Periodic status log
         if (frameCounter % 180 == 0) {
+            int windowWidth = (int) camera.viewportWidth;
+            int windowHeight = (int) camera.viewportHeight;
             Gdx.app.log("TileMapRenderer", String.format(
-                "Frame %d | Zoom: %d | Rendered: %d | Missing: %d | Cache: %d | Loading: %d | Failed: %d",
-                frameCounter, zoomLevel, rendered, missing, tileCache.size(),
-                loadingTiles.size(), failedTiles.size()
+                "Frame %d | Zoom: %d | Map: %dx%d | Window: %dx%d | Rendered: %d | Missing: %d | Cache: %d | Loading: %d | Failed: %d",
+                frameCounter, zoomLevel, worldSize, worldSize, windowWidth, windowHeight, 
+                rendered, missing, tileCache.size(), loadingTiles.size(), failedTiles.size()
             ));
         }
     }
@@ -167,7 +169,7 @@ public class TileMapRenderer {
         HttpURLConnection conn = null;
         try {
             String urlStr = String.format(
-                "https://tile.openstreetmap.org/%d/%d/%d.png",
+                "https://tile.openstreetmap.de/tiles/osmde/%d/%d/%d.png",
                 zoom, x, y
             );
 
@@ -449,18 +451,6 @@ public class TileMapRenderer {
     public void resize(int width, int height) {
         camera.viewportWidth = width;
         camera.viewportHeight = height;
-        
-        // Calculate zoom that fits the entire world in the viewport
-        int worldSize = TILE_SIZE * (1 << zoomLevel);
-        float zoomToFitX = (float) worldSize / width;
-        float zoomToFitY = (float) worldSize / height;
-        float zoomToFit = Math.max(zoomToFitX, zoomToFitY);
-        
-        // If current zoom is too small (showing outside map), adjust camera zoom
-        if (camera.zoom < zoomToFit) {
-            camera.zoom = zoomToFit;
-        }
-        
         camera.update();
     }
 

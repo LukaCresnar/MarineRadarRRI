@@ -31,6 +31,8 @@ public class MarineRadar extends ApplicationAdapter {
     private Label zoomLabel;
     private Label shipCountLabel;
     private Label connectionLabel;
+    private ShipSearchPanel shipSearchPanel;
+    private Ship selectedSearchShip = null;
 
     private float zoomSpeed = 0.05f;
     private float moveSpeed = 5f;
@@ -73,8 +75,8 @@ public class MarineRadar extends ApplicationAdapter {
         // Setup input handling
         mapInputProcessor = new MapInputProcessor();
         inputMultiplexer = new InputMultiplexer();
-        inputMultiplexer.addProcessor(uiStage);
         inputMultiplexer.addProcessor(mapInputProcessor);
+        inputMultiplexer.addProcessor(uiStage);
         Gdx.input.setInputProcessor(inputMultiplexer);
 
         Gdx.app.log("MarineRadar", "Initialization complete");
@@ -131,13 +133,42 @@ public class MarineRadar extends ApplicationAdapter {
                 centerCamera();
             }
         });
+        
+        TextButton toggleSearchButton = new TextButton("Find Ship", skin);
+        toggleSearchButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                if (shipSearchPanel.isVisible()) {
+                    shipSearchPanel.setVisible(false);
+                } else {
+                    shipSearchPanel.setVisible(true);
+                }
+            }
+        });
 
         buttonTable.add(helpButton).pad(5);
         buttonTable.add(radarToggle).pad(5);
         buttonTable.add(centerButton).pad(5);
+        buttonTable.add(toggleSearchButton).pad(5);
 
         mainTable.add(infoPanel).left().row();
-        mainTable.add(buttonTable).left().padTop(10);
+        mainTable.add(buttonTable).left().padTop(10).row();
+        
+        // Ship search panel (hidden by default)
+        shipSearchPanel = new ShipSearchPanel(ships, skin, new ShipSearchPanel.ShipSelectionListener() {
+            @Override
+            public void onShipSelected(Ship ship) {
+                selectedSearchShip = ship;
+            }
+            
+            @Override
+            public void onShipDoubleClicked(Ship ship) {
+                selectedSearchShip = ship;
+                centerOnSelectedShip();
+            }
+        });
+        shipSearchPanel.setVisible(false);
+        mainTable.add(shipSearchPanel).left().padTop(10).row();
 
         uiStage.addActor(mainTable);
     }
@@ -149,6 +180,11 @@ public class MarineRadar extends ApplicationAdapter {
         handleInput();
         updateRadar(delta);
         updateUI();
+        
+        // Refresh ship list periodically
+        if ((long) (Gdx.graphics.getFrameId()) % 30 == 0) {
+            shipSearchPanel.refreshShips();
+        }
 
         Gdx.gl.glClearColor(0.0039f, 0.6431f, 0.9137f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
@@ -288,6 +324,16 @@ public class MarineRadar extends ApplicationAdapter {
         int worldSize = map.getWorldSize();
         camera.position.set(worldSize / 2f, worldSize / 2f, 0);
         camera.zoom = 1f;
+    }
+
+    private void centerOnSelectedShip() {
+        if (selectedSearchShip != null) {
+            Vector2 pos = map.latLonToPixel(selectedSearchShip.lat, selectedSearchShip.lon);
+            camera.position.set(pos.x, pos.y, 0);
+            camera.update();
+        } else {
+            Gdx.app.log("MarineRadar", "No ship selected");
+        }
     }
 
     private void showHelpScreen() {

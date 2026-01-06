@@ -73,8 +73,8 @@ public class ShipDataFetcher {
                     // AISStream.io sends messages as ByteBuffers, not Strings!
                     try {
                         String jsonString = StandardCharsets.UTF_8.decode(message).toString();
-                        Gdx.app.log("ShipDataFetcher", "=== Received Message ===");
-                        Gdx.app.log("ShipDataFetcher", "Message preview: " + jsonString.substring(0, Math.min(300, jsonString.length())));
+                        // Gdx.app.log("ShipDataFetcher", "=== Received Message ===");
+                        // Gdx.app.log("ShipDataFetcher", "Message preview: " + jsonString.substring(0, Math.min(300, jsonString.length())));
                         parseAISMessage(jsonString);
                     } catch (Exception e) {
                         Gdx.app.error("ShipDataFetcher", "Error parsing ByteBuffer message: " + e.getMessage());
@@ -85,8 +85,8 @@ public class ShipDataFetcher {
                 @Override
                 public void onMessage(String message) {
                     // This method is unused as aisstream.io returns messages as byte buffers
-                    Gdx.app.log("ShipDataFetcher", "=== Received String Message (Unexpected) ===");
-                    Gdx.app.log("ShipDataFetcher", message.substring(0, Math.min(300, message.length())));
+                    // Gdx.app.log("ShipDataFetcher", "=== Received String Message (Unexpected) ===");
+                    // Gdx.app.log("ShipDataFetcher", message.substring(0, Math.min(300, message.length())));
 
                     // Try to parse it anyway
                     try {
@@ -262,10 +262,10 @@ public class ShipDataFetcher {
                     ships.add(ship);
                     shipMap.put(finalMmsi, ship);
 
-                    Gdx.app.log("ShipDataFetcher", String.format(
-                        "NEW SHIP #%d: %s (%s) at (%.4f, %.4f) - Speed: %.1f knots",
-                        ships.size(), ship.name, finalMmsi, finalLat, finalLon, finalSpeed
-                    ));
+                    // Gdx.app.log("ShipDataFetcher", String.format(
+                    //     "NEW SHIP #%d: %s (%s) at (%.4f, %.4f) - Speed: %.1f knots",
+                    //     ships.size(), ship.name, finalMmsi, finalLat, finalLon, finalSpeed
+                    // ));
                 } else {
                     // Update existing ship
                     ship.update(finalLat, finalLon, finalSpeed, finalCourse, finalHeading);
