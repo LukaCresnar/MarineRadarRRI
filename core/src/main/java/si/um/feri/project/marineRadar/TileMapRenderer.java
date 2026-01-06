@@ -23,6 +23,7 @@ public class TileMapRenderer {
 
     private final OrthographicCamera camera;
     private final SpriteBatch batch;
+    private final CloudsLayer cloudsLayer;
 
     // Simple, stable tile storage - never remove tiles during render
     private final ConcurrentHashMap<String, Texture> tileCache = new ConcurrentHashMap<>();
@@ -39,6 +40,7 @@ public class TileMapRenderer {
     public TileMapRenderer(OrthographicCamera camera) {
         this.camera = camera;
         this.batch = new SpriteBatch();
+        this.cloudsLayer = new CloudsLayer();
 
         downloadExecutor = Executors.newFixedThreadPool(MAX_CONCURRENT_DOWNLOADS, r -> {
             Thread t = new Thread(r);
@@ -121,6 +123,11 @@ public class TileMapRenderer {
         }
 
         batch.end();
+        
+        batch.setProjectionMatrix(camera.combined);
+        batch.begin();
+        cloudsLayer.render(batch, zoomLevel, worldSize);
+        batch.end();
 
         // Periodic cleanup (every 300 frames = ~5 seconds at 60fps)
         if (frameCounter % 300 == 0) {
@@ -180,11 +187,11 @@ public class TileMapRenderer {
             conn.setReadTimeout(8000);
             
             // Small delay 
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            // try {
+            //     Thread.sleep(50);
+            // } catch (InterruptedException e) {
+            //     Thread.currentThread().interrupt();
+            // }
             
             conn.connect();
 
@@ -476,7 +483,8 @@ public class TileMapRenderer {
         tileLastUsed.clear();
         loadingTiles.clear();
         failedTiles.clear();
-
+        
+        cloudsLayer.dispose();
         batch.dispose();
 
         Gdx.app.log("TileMapRenderer", "Disposed");
