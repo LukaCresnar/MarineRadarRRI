@@ -72,11 +72,23 @@ public class TileMapRenderer {
 
         // Convert to tile coordinates with generous buffer
         int maxTileCoord = (1 << zoomLevel) - 1;
+        int worldSize = TILE_SIZE * (1 << zoomLevel);
 
-        int tileStartX = Math.max(0, (int)(left / TILE_SIZE) - 2);
-        int tileEndX = Math.min(maxTileCoord, (int)(right / TILE_SIZE) + 2);
-        int tileStartY = Math.max(0, (int)(bottom / TILE_SIZE) - 2);
-        int tileEndY = Math.min(maxTileCoord, (int)(top / TILE_SIZE) + 2);
+        // Clamp viewport to world bounds to prevent wrapping
+        left = Math.max(0, left);
+        right = Math.min(worldSize, right);
+        bottom = Math.max(0, bottom);
+        top = Math.min(worldSize, top);
+
+        int tileStartX = Math.max(0, (int)(left / TILE_SIZE) - 1);
+        int tileEndX = Math.min(maxTileCoord, (int)(right / TILE_SIZE) + 1);
+        
+        // Convert world coordinates to tile Y accounting for the flip
+        int tileBottomFlipped = (int)((worldSize - top) / TILE_SIZE) - 1;
+        int tileTopFlipped = (int)((worldSize - bottom) / TILE_SIZE) + 1;
+        
+        int tileStartY = Math.max(0, Math.min(tileBottomFlipped, tileTopFlipped));
+        int tileEndY = Math.min(maxTileCoord, Math.max(tileBottomFlipped, tileTopFlipped));
 
         int rendered = 0;
         int missing = 0;
@@ -246,7 +258,8 @@ public class TileMapRenderer {
         // Apply zoom
         float oldZoom = camera.zoom;
         camera.zoom *= (1 + scrollAmount * 0.1f);
-        camera.zoom = Math.max(0.3f, Math.min(5f, camera.zoom));
+        // Stricter zoom limits to prevent extreme cases
+        camera.zoom = Math.max(0.5f, Math.min(2f, camera.zoom));
         camera.update();
 
         // Get world coordinates after zoom
@@ -255,6 +268,9 @@ public class TileMapRenderer {
         // Adjust camera to keep same point under cursor
         camera.position.x += (worldBefore.x - worldAfter.x);
         camera.position.y += (worldBefore.y - worldAfter.y);
+        
+        // Clamp camera position to valid world bounds
+        clampCameraPosition();
         camera.update();
 
         // Check if zoom level needs to change
@@ -280,8 +296,8 @@ public class TileMapRenderer {
 
         // Calculate position ratio in current world
         int oldWorldSize = TILE_SIZE * (1 << zoomLevel);
-        float ratioX = camera.position.x / oldWorldSize;
-        float ratioY = camera.position.y / oldWorldSize;
+        float ratioX = Math.max(0, Math.min(1, camera.position.x / oldWorldSize));
+        float ratioY = Math.max(0, Math.min(1, camera.position.y / oldWorldSize));
 
         int oldZoom = zoomLevel;
         zoomLevel = newZoomLevel;
@@ -291,6 +307,9 @@ public class TileMapRenderer {
         camera.position.x = ratioX * newWorldSize;
         camera.position.y = ratioY * newWorldSize;
         camera.zoom = 1f;
+        
+        // Clamp camera position to valid world bounds
+        clampCameraPosition();
         camera.update();
 
         // Clear old zoom level tiles after a delay
@@ -361,6 +380,25 @@ public class TileMapRenderer {
         double lat = Math.toDegrees(latRad);
 
         return new Vector2((float)lon, (float)lat);
+    }
+
+    private void clampCameraPosition() {
+        int worldSize = TILE_SIZE * (1 << zoomLevel);
+        float halfWidth = camera.viewportWidth * camera.zoom / 2f;
+        float halfHeight = camera.viewportHeight * camera.zoom / 2f;
+        
+        // If viewport is larger than world, center on world
+        if (2 * halfWidth >= worldSize) {
+            camera.position.x = worldSize / 2f;
+        } else {
+            camera.position.x = Math.max(halfWidth, Math.min(worldSize - halfWidth, camera.position.x));
+        }
+        
+        if (2 * halfHeight >= worldSize) {
+            camera.position.y = worldSize / 2f;
+        } else {
+            camera.position.y = Math.max(halfHeight, Math.min(worldSize - halfHeight, camera.position.y));
+        }
     }
 
     private String getTileKey(int zoom, int x, int y) {

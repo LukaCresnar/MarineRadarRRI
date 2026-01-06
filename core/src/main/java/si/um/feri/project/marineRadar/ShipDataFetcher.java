@@ -26,7 +26,8 @@ public class ShipDataFetcher {
     private int reconnectAttempts = 0;
     private static final int MAX_RECONNECT_ATTEMPTS = 10;
 
-    private static final String API_KEY = "fd72c19f82a5c62bda5c4cc17866c4e3577920a5";
+    // private static final String API_KEY = "fd72c19f82a5c62bda5c4cc17866c4e3577920a5";
+    private static final String API_KEY = "252feffd9e2ca305dfae1c3a16ae40d4580f8ef2";
     private static final String WS_URL = "wss://stream.aisstream.io/v0/stream";
 
     public ShipDataFetcher(List<Ship> ships) {
