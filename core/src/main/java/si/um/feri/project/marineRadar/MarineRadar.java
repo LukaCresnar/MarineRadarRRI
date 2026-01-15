@@ -25,6 +25,9 @@ public class MarineRadar extends ApplicationAdapter {
     private float lastMouseX, lastMouseY;
     private boolean dragging = false;
 
+    private Ship3DRenderer ship3DRenderer;
+    private boolean show3DMode = false;
+
     private Stage uiStage;
     private Skin skin;
     private Label positionLabel;
@@ -37,23 +40,25 @@ public class MarineRadar extends ApplicationAdapter {
     private float zoomSpeed = 0.05f;
     private float moveSpeed = 5f;
 
-    // Ship management
     private List<Ship> ships;
     private Ship selectedShip = null;
     private ShipDataFetcher shipDataFetcher;
 
-    // Input handling
     private InputMultiplexer inputMultiplexer;
     private MapInputProcessor mapInputProcessor;
 
-    // Radar sweep effect
     private float radarAngle = 0f;
     private boolean showRadarSweep = true;
+    private boolean showRoutes = true;
+
+    private boolean animatingToShip = false;
+    private Vector2 cameraTarget = new Vector2();
+    private float targetZoom = 1f;
+    private float animationProgress = 0f;
 
     @Override
     public void create() {
-        // Enable debug logging
-        Gdx.app.setLogLevel(com.badlogic.gdx.Application.LOG_DEBUG);
+        Gdx.app.setLogLevel(Application.LOG_INFO);
 
         camera = new OrthographicCamera(
             Gdx.graphics.getWidth(),
@@ -64,15 +69,14 @@ public class MarineRadar extends ApplicationAdapter {
         shapeRenderer = new ShapeRenderer();
         ships = new ArrayList<>();
 
-        // Initialize ship data fetcher with real AISStream.io data
         Gdx.app.log("MarineRadar", "Starting ship data fetcher...");
         shipDataFetcher = new ShipDataFetcher(ships);
         shipDataFetcher.startFetching();
 
-        // Setup UI
+        ship3DRenderer = new Ship3DRenderer(map);
+
         setupUI();
 
-        // Setup input handling
         mapInputProcessor = new MapInputProcessor();
         inputMultiplexer = new InputMultiplexer();
         inputMultiplexer.addProcessor(mapInputProcessor);
@@ -86,13 +90,11 @@ public class MarineRadar extends ApplicationAdapter {
         uiStage = new Stage(new ScreenViewport());
         skin = new Skin(Gdx.files.internal("uiskin.json"));
 
-        // Main UI container
         Table mainTable = new Table();
         mainTable.setFillParent(true);
         mainTable.top().left();
         mainTable.pad(10);
 
-        // Info panel
         Table infoPanel = new Table(skin);
         infoPanel.setBackground("default-rect");
         infoPanel.pad(10);
@@ -107,7 +109,6 @@ public class MarineRadar extends ApplicationAdapter {
         infoPanel.add(shipCountLabel).left().row();
         infoPanel.add(connectionLabel).left().row();
 
-        // Control buttons
         Table buttonTable = new Table();
 
         TextButton helpButton = new TextButton("Help", skin);
@@ -133,19 +134,15 @@ public class MarineRadar extends ApplicationAdapter {
                 centerCamera();
             }
         });
-        
+
         TextButton toggleSearchButton = new TextButton("Find Ship", skin);
         toggleSearchButton.addListener(new ClickListener() {
             @Override
             public void clicked(InputEvent event, float x, float y) {
-                if (shipSearchPanel.isVisible()) {
-                    shipSearchPanel.setVisible(false);
-                } else {
-                    shipSearchPanel.setVisible(true);
-                }
+                shipSearchPanel.setVisible(!shipSearchPanel.isVisible());
             }
         });
-        
+
         TextButton toggleCloudsButton = new TextButton("Toggle Clouds", skin);
         toggleCloudsButton.addListener(new ClickListener() {
             @Override
@@ -154,21 +151,30 @@ public class MarineRadar extends ApplicationAdapter {
             }
         });
 
+        TextButton toggleRoutesButton = new TextButton("Toggle Routes", skin);
+        toggleRoutesButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                showRoutes = !showRoutes;
+            }
+        });
+
         buttonTable.add(helpButton).pad(5);
         buttonTable.add(radarToggle).pad(5);
         buttonTable.add(centerButton).pad(5);
         buttonTable.add(toggleSearchButton).pad(5);
         buttonTable.add(toggleCloudsButton).pad(5);
+        buttonTable.add(toggleRoutesButton).pad(5);
 
         mainTable.add(infoPanel).left().row();
         mainTable.add(buttonTable).left().padTop(10).row();
-        
+
         shipSearchPanel = new ShipSearchPanel(ships, skin, new ShipSearchPanel.ShipSelectionListener() {
             @Override
             public void onShipSelected(Ship ship) {
                 selectedSearchShip = ship;
             }
-            
+
             @Override
             public void onShipDoubleClicked(Ship ship) {
                 selectedSearchShip = ship;
@@ -187,9 +193,9 @@ public class MarineRadar extends ApplicationAdapter {
 
         handleInput();
         updateRadar(delta);
+        updateCameraAnimation(delta);
         updateUI();
-        
-        // Refresh ship list periodically
+
         if ((long) (Gdx.graphics.getFrameId()) % 30 == 0) {
             shipSearchPanel.refreshShips();
         }
@@ -198,31 +204,32 @@ public class MarineRadar extends ApplicationAdapter {
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
         camera.update();
-
-        // Render map
         map.render();
 
-        // Render ships
-        renderShips();
+        if (!show3DMode) {
+            renderShipsEnhanced();
+        }
 
-        // Render radar sweep
-        if (showRadarSweep && selectedShip != null) {
+        if (show3DMode && ship3DRenderer.isActive()) {
+            Gdx.gl.glEnable(GL20.GL_DEPTH_TEST);
+            ship3DRenderer.render(delta);
+            Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
+        }
+
+        if (showRadarSweep && selectedShip != null && !show3DMode) {
             renderRadarSweep();
         }
 
-        // Render UI
         uiStage.act(delta);
         uiStage.draw();
     }
 
     private void handleInput() {
-        // Keyboard movement
         if (Gdx.input.isKeyPressed(Input.Keys.LEFT))  camera.position.x -= moveSpeed * camera.zoom;
         if (Gdx.input.isKeyPressed(Input.Keys.RIGHT)) camera.position.x += moveSpeed * camera.zoom;
         if (Gdx.input.isKeyPressed(Input.Keys.UP))    camera.position.y += moveSpeed * camera.zoom;
         if (Gdx.input.isKeyPressed(Input.Keys.DOWN))  camera.position.y -= moveSpeed * camera.zoom;
 
-        // Keyboard zoom
         if (Gdx.input.isKeyPressed(Input.Keys.A)) {
             camera.zoom *= (1 + zoomSpeed);
             camera.zoom = MathUtils.clamp(camera.zoom, 0.3f, 5f);
@@ -232,7 +239,6 @@ public class MarineRadar extends ApplicationAdapter {
             camera.zoom = MathUtils.clamp(camera.zoom, 0.3f, 5f);
         }
 
-        // Mouse dragging
         if (Gdx.input.isButtonPressed(Input.Buttons.LEFT) && uiStage.hit(Gdx.input.getX(), Gdx.graphics.getHeight() - Gdx.input.getY(), true) == null) {
             if (!dragging) {
                 dragging = true;
@@ -252,7 +258,6 @@ public class MarineRadar extends ApplicationAdapter {
             dragging = false;
         }
 
-        // Keep camera in bounds
         clampCamera();
     }
 
@@ -266,10 +271,32 @@ public class MarineRadar extends ApplicationAdapter {
     }
 
     private void updateRadar(float delta) {
-        radarAngle += 60f * delta; // 60 degrees per second
+        radarAngle += 60f * delta;
         if (radarAngle >= 360f) {
             radarAngle -= 360f;
         }
+    }
+
+    private void updateCameraAnimation(float delta) {
+        if (!animatingToShip) return;
+
+        animationProgress += delta * 2f;
+
+        if (animationProgress >= 1f) {
+            animatingToShip = false;
+            animationProgress = 1f;
+
+            if (selectedShip != null) {
+                show3DMode = true;
+                ship3DRenderer.activate(selectedShip);
+            }
+        }
+
+        float t = animationProgress * animationProgress * (3f - 2f * animationProgress);
+
+        camera.position.x = MathUtils.lerp(camera.position.x, cameraTarget.x, t);
+        camera.position.y = MathUtils.lerp(camera.position.y, cameraTarget.y, t);
+        camera.zoom = MathUtils.lerp(camera.zoom, targetZoom, t);
     }
 
     private void updateUI() {
@@ -278,33 +305,102 @@ public class MarineRadar extends ApplicationAdapter {
         zoomLabel.setText(String.format("Zoom Level: %d (%.2fx)", map.getZoomLevel(), camera.zoom));
         shipCountLabel.setText(String.format("Ships: %d", ships.size()));
 
-        // Update connection status
         if (shipDataFetcher.isConnected()) {
             connectionLabel.setText("Status: Connected");
-            connectionLabel.setColor(0f, 1f, 0f, 1f); // Green
+            connectionLabel.setColor(0f, 1f, 0f, 1f);
         } else {
             connectionLabel.setText("Status: Disconnected");
-            connectionLabel.setColor(1f, 0f, 0f, 1f); // Red
+            connectionLabel.setColor(1f, 0f, 0f, 1f);
         }
     }
 
-    private void renderShips() {
+    private void renderShipsEnhanced() {
         shapeRenderer.setProjectionMatrix(camera.combined);
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
 
+        // Draw routes first
+        if (showRoutes) {
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+            for (Ship ship : ships) {
+                if (ship == selectedShip && ship.isMoving()) {
+                    drawShipRoute(ship);
+                }
+            }
+            shapeRenderer.end();
+        }
+
+        // Draw ships
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
         for (Ship ship : ships) {
             Vector2 pos = map.latLonToPixel(ship.lat, ship.lon);
 
             if (ship == selectedShip) {
-                shapeRenderer.setColor(1f, 1f, 0f, 1f); // Yellow for selected
+                shapeRenderer.setColor(1f, 1f, 0f, 1f);
                 shapeRenderer.circle(pos.x, pos.y, 8f);
+            } else if (ship.navigationalStatus == 1 || ship.navigationalStatus == 5) {
+                shapeRenderer.setColor(0.6f, 0.6f, 0.6f, 1f);
+                shapeRenderer.circle(pos.x, pos.y, 5f);
             } else {
-                shapeRenderer.setColor(1f, 0f, 0f, 1f); // Red for ships
+                shapeRenderer.setColor(1f, 0f, 0f, 1f);
                 shapeRenderer.circle(pos.x, pos.y, 5f);
             }
         }
-
         shapeRenderer.end();
+
+        // Draw heading indicators
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        for (Ship ship : ships) {
+            if (ship.isMoving() && (ship == selectedShip || ship.speed > 5f)) {
+                drawHeadingIndicator(ship);
+            }
+        }
+        shapeRenderer.end();
+    }
+
+    private void drawShipRoute(Ship ship) {
+        if (ship.routeInfo == null) return;
+
+        Vector2 startPos = map.latLonToPixel(ship.routeInfo.startLat, ship.routeInfo.startLon);
+        Vector2 currentPos = map.latLonToPixel(ship.lat, ship.lon);
+        Vector2 destPos = map.latLonToPixel(ship.routeInfo.destLat, ship.routeInfo.destLon);
+
+        // Draw line from start to current (green)
+        shapeRenderer.setColor(0f, 1f, 0f, 0.6f);
+        shapeRenderer.line(startPos.x, startPos.y, currentPos.x, currentPos.y);
+
+        // Draw line from current to destination (cyan, dashed)
+        shapeRenderer.setColor(0f, 1f, 1f, 0.6f);
+        int segments = 15;
+        for (int i = 0; i < segments; i += 2) {
+            float t1 = i / (float) segments;
+            float t2 = Math.min((i + 1) / (float) segments, 1f);
+
+            float x1 = currentPos.x + (destPos.x - currentPos.x) * t1;
+            float y1 = currentPos.y + (destPos.y - currentPos.y) * t1;
+            float x2 = currentPos.x + (destPos.x - currentPos.x) * t2;
+            float y2 = currentPos.y + (destPos.y - currentPos.y) * t2;
+
+            shapeRenderer.line(x1, y1, x2, y2);
+        }
+
+        // Draw markers
+        shapeRenderer.end();
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(0f, 1f, 0f, 1f);
+        shapeRenderer.circle(startPos.x, startPos.y, 4f);
+        shapeRenderer.setColor(1f, 0.5f, 0f, 1f);
+        shapeRenderer.circle(destPos.x, destPos.y, 4f);
+        shapeRenderer.end();
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+    }
+
+    private void drawHeadingIndicator(Ship ship) {
+        Vector2 pos = map.latLonToPixel(ship.lat, ship.lon);
+        float lineLength = 25f;
+        float headingRad = (ship.heading - 90) * MathUtils.degreesToRadians;
+        float endX = pos.x + MathUtils.cos(headingRad) * lineLength;
+        float endY = pos.y + MathUtils.sin(headingRad) * lineLength;
+        shapeRenderer.setColor(1f, 0.6f, 0f, 1f);
+        shapeRenderer.line(pos.x, pos.y, endX, endY);
     }
 
     private void renderRadarSweep() {
@@ -317,7 +413,6 @@ public class MarineRadar extends ApplicationAdapter {
         shapeRenderer.setColor(0f, 1f, 0f, 0.5f);
         shapeRenderer.circle(pos.x, pos.y, radius, 32);
 
-        // Draw sweep line
         float rad = radarAngle * MathUtils.degreesToRadians;
         float endX = pos.x + MathUtils.cos(rad) * radius;
         float endY = pos.y + MathUtils.sin(rad) * radius;
@@ -332,6 +427,9 @@ public class MarineRadar extends ApplicationAdapter {
         int worldSize = map.getWorldSize();
         camera.position.set(worldSize / 2f, worldSize / 2f, 0);
         camera.zoom = 1f;
+        animatingToShip = false;
+        show3DMode = false;
+        ship3DRenderer.deactivate();
     }
 
     private void centerOnSelectedShip() {
@@ -339,8 +437,6 @@ public class MarineRadar extends ApplicationAdapter {
             Vector2 pos = map.latLonToPixel(selectedSearchShip.lat, selectedSearchShip.lon);
             camera.position.set(pos.x, pos.y, 0);
             camera.update();
-        } else {
-            Gdx.app.log("MarineRadar", "No ship selected");
         }
     }
 
@@ -349,53 +445,96 @@ public class MarineRadar extends ApplicationAdapter {
         dialog.text(
             "NAVIGATION:\n" +
                 "• Mouse drag - move map\n" +
-                "• Scroll wheel - zoom in/out\n" +
-                "• Arrow keys - move map\n" +
-                "• A / S - zoom in/out\n\n" +
+                "• Scroll wheel - zoom\n" +
+                "• Arrow keys - move\n" +
+                "• A / S - zoom\n\n" +
                 "SHIPS:\n" +
-                "• Click on ship - view details\n" +
-                "• Red dots - vessels\n" +
-                "• Yellow dot - selected vessel\n\n" +
+                "• Click ship - details\n" +
+                "• Routes show origin → destination\n" +
+                "• Green line: traveled\n" +
+                "• Cyan line: projected route\n\n" +
                 "FEATURES:\n" +
-                "• Real-time AIS data from AISStream.io\n" +
-                "• Toggle radar sweep effect\n" +
-                "• Center map button"
+                "• Real-time AIS data\n" +
+                "• 3D ship view\n" +
+                "• Limited to 100 ships"
         );
         dialog.button("Close");
         dialog.show(uiStage);
     }
 
     private void showShipDetails(Ship ship) {
-        Dialog dialog = new Dialog("Vessel Details", skin) {
+        Dialog dialog = new Dialog("Vessel Information", skin) {
             @Override
             protected void result(Object object) {
-                if (object != null && object.equals(true)) {
+                if (object != null && object.equals("track")) {
                     selectedShip = ship;
+                } else if (object != null && object.equals("focus")) {
+                    focusOnShip(ship);
                 }
             }
         };
 
-        String details = String.format(
-            "Name: %s\n" +
-                "MMSI: %s\n" +
-                "Type: %s\n" +
-                "Position: %.4f, %.4f\n" +
-                "Speed: %.1f knots\n" +
-                "Course: %.1f°\n" +
-                "Heading: %.1f°",
-            ship.name != null ? ship.name : "Unknown",
-            ship.mmsi != null ? ship.mmsi : "N/A",
-            ship.type != null ? ship.type : "Unknown",
-            ship.lat, ship.lon,
-            ship.speed,
-            ship.course,
-            ship.heading
-        );
+        StringBuilder details = new StringBuilder();
 
-        dialog.text(details);
-        dialog.button("Track", true);
-        dialog.button("Close", false);
+        details.append("=== VESSEL IDENTITY ===\n");
+        details.append("Name: ").append(ship.name).append("\n");
+        details.append("MMSI: ").append(ship.mmsi).append("\n");
+        if (!ship.callSign.isEmpty()) {
+            details.append("Call Sign: ").append(ship.callSign).append("\n");
+        }
+        if (ship.imoNumber > 0) {
+            details.append("IMO: ").append(ship.imoNumber).append("\n");
+        }
+        details.append("Type: ").append(ship.shipType).append("\n");
+
+        details.append("\n=== ROUTE ===\n");
+        if (ship.routeInfo != null) {
+            details.append("From: ").append(ship.routeInfo.startLocation).append("\n");
+            details.append("Heading To: ").append(ship.routeInfo.destLocation).append("\n");
+        }
+
+        details.append("\n=== CURRENT STATUS ===\n");
+        details.append(String.format("Position: %.4f, %.4f\n", ship.lat, ship.lon));
+        details.append(String.format("Speed: %.1f knots\n", ship.speed));
+        details.append(String.format("Course: %.1f°\n", ship.course));
+        details.append(String.format("Heading: %.1f°\n", ship.heading));
+        details.append("Status: ").append(ship.getNavigationalStatusText()).append("\n");
+
+        if (ship.shipLength > 0 || ship.draught > 0) {
+            details.append("\n=== DIMENSIONS ===\n");
+            if (ship.shipLength > 0 && ship.shipWidth > 0) {
+                details.append("Size: ").append(ship.getFormattedSize()).append("\n");
+            }
+            if (ship.draught > 0) {
+                details.append(String.format("Draught: %.1f m\n", ship.draught));
+            }
+        }
+
+        if (!ship.destination.equals("Unknown")) {
+            details.append("\n=== VOYAGE ===\n");
+            details.append("Destination: ").append(ship.destination).append("\n");
+            if (ship.eta != null && ship.eta.isValid()) {
+                details.append("ETA: ").append(ship.eta.toString()).append("\n");
+            }
+        }
+
+        dialog.text(details.toString());
+        dialog.button("Track", "track");
+        dialog.button("Focus & 3D", "focus");
+        dialog.button("Close", "close");
         dialog.show(uiStage);
+    }
+
+    private void focusOnShip(Ship ship) {
+        selectedShip = ship;
+        Vector2 pos = map.latLonToPixel(ship.lat, ship.lon);
+
+        cameraTarget.set(pos);
+        targetZoom = 0.15f;
+        animationProgress = 0f;
+        animatingToShip = true;
+
+        Gdx.app.log("MarineRadar", "Focusing on ship: " + ship.name);
     }
 
     @Override
@@ -412,14 +551,13 @@ public class MarineRadar extends ApplicationAdapter {
         shapeRenderer.dispose();
         uiStage.dispose();
         skin.dispose();
+        ship3DRenderer.dispose();
         shipDataFetcher.stop();
     }
 
-    // Input processor for map interactions
     private class MapInputProcessor extends InputAdapter {
         @Override
         public boolean scrolled(float amountX, float amountY) {
-            // Zoom towards cursor position
             map.zoomTowardsCursor(amountY, Gdx.input.getX(), Gdx.input.getY());
             return true;
         }

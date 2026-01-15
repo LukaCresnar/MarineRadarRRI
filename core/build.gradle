@@ -24,4 +24,7 @@ dependencies {
   implementation 'org.java-websocket:Java-WebSocket:1.5.3'
   // SLF4J logging (optional, removes warning)
   implementation 'org.slf4j:slf4j-simple:2.0.9'
+
+  implementation "com.badlogicgames.gdx:gdx-box2d:$gdxVersion"
+  implementation "com.badlogicgames.gdx:gdx-box2d-platform:$gdxVersion:natives-desktop"
 }

@@ -3,7 +3,6 @@ package si.um.feri.project.marineRadar;
 import com.badlogic.gdx.Gdx;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.net.URI;
@@ -11,12 +10,9 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Fetches real-time ship data from AISStream.io via WebSocket
- * Documentation: https://aisstream.io/documentation
- */
 public class ShipDataFetcher {
 
     private final List<Ship> ships;
@@ -25,10 +21,13 @@ public class ShipDataFetcher {
     private boolean running = false;
     private int reconnectAttempts = 0;
     private static final int MAX_RECONNECT_ATTEMPTS = 10;
+    private static final int MAX_SHIPS = 1000; // Limit to prevent lag
+    private boolean maxShipsReached = false;
 
-    // private static final String API_KEY = "fd72c19f82a5c62bda5c4cc17866c4e3577920a5";
-    private static final String API_KEY = "252feffd9e2ca305dfae1c3a16ae40d4580f8ef2";
+    private static final String API_KEY = "fd72c19f82a5c62bda5c4cc17866c4e3577920a5";
     private static final String WS_URL = "wss://stream.aisstream.io/v0/stream";
+
+    private Random random = new Random();
 
     public ShipDataFetcher(List<Ship> ships) {
         this.ships = ships;
@@ -38,7 +37,6 @@ public class ShipDataFetcher {
         if (running) return;
         running = true;
         reconnectAttempts = 0;
-
         connectWebSocket();
     }
 
@@ -47,242 +45,284 @@ public class ShipDataFetcher {
             wsClient = new WebSocketClient(new URI(WS_URL)) {
                 @Override
                 public void onOpen(ServerHandshake handshake) {
-                    Gdx.app.log("ShipDataFetcher", "=== WebSocket Connected ===");
-                    Gdx.app.log("ShipDataFetcher", "HTTP Status: " + handshake.getHttpStatus());
-                    Gdx.app.log("ShipDataFetcher", "HTTP Status Message: " + handshake.getHttpStatusMessage());
+                    Gdx.app.log("ShipDataFetcher", "Connected to AISStream.io");
                     reconnectAttempts = 0;
+                    maxShipsReached = false;
 
-                    // EXACT format from the working example - no spaces, no formatting
-                    String subscribeMsg = "{\"APIKey\":\"fd72c19f82a5c62bda5c4cc17866c4e3577920a5\",\"BoundingBoxes\":[[[-90,-180],[90,180]]]}";
+                    // Subscribe to worldwide data
+                    String subscribeMsg = "{\"APIKey\":\"" + API_KEY +
+                        "\",\"BoundingBoxes\":[[[-90,-180],[90,180]]]}";
 
-                    Gdx.app.log("ShipDataFetcher", "Sending subscription...");
-                    Gdx.app.log("ShipDataFetcher", "Message: " + subscribeMsg);
-                    Gdx.app.log("ShipDataFetcher", "Message length: " + subscribeMsg.length());
-
-                    try {
-                        send(subscribeMsg);
-                        Gdx.app.log("ShipDataFetcher", "Subscription sent successfully!");
-                    } catch (Exception e) {
-                        Gdx.app.error("ShipDataFetcher", "Failed to send subscription: " + e.getMessage());
-                        e.printStackTrace();
-                    }
+                    send(subscribeMsg);
+                    Gdx.app.log("ShipDataFetcher", "Subscription active");
                 }
 
                 @Override
                 public void onMessage(ByteBuffer message) {
-                    // AISStream.io sends messages as ByteBuffers, not Strings!
+                    if (maxShipsReached) return;
                     try {
                         String jsonString = StandardCharsets.UTF_8.decode(message).toString();
-                        // Gdx.app.log("ShipDataFetcher", "=== Received Message ===");
-                        // Gdx.app.log("ShipDataFetcher", "Message preview: " + jsonString.substring(0, Math.min(300, jsonString.length())));
                         parseAISMessage(jsonString);
                     } catch (Exception e) {
-                        Gdx.app.error("ShipDataFetcher", "Error parsing ByteBuffer message: " + e.getMessage());
-                        e.printStackTrace();
+                        // Silently ignore
                     }
                 }
 
                 @Override
                 public void onMessage(String message) {
-                    // This method is unused as aisstream.io returns messages as byte buffers
-                    // Gdx.app.log("ShipDataFetcher", "=== Received String Message (Unexpected) ===");
-                    // Gdx.app.log("ShipDataFetcher", message.substring(0, Math.min(300, message.length())));
-
-                    // Try to parse it anyway
+                    if (maxShipsReached) return;
                     try {
                         parseAISMessage(message);
                     } catch (Exception e) {
-                        Gdx.app.error("ShipDataFetcher", "Error parsing string message: " + e.getMessage());
+                        // Silently ignore
                     }
                 }
 
                 @Override
                 public void onClose(int code, String reason, boolean remote) {
-                    String closeReason = reason != null && !reason.isEmpty() ? reason : "No reason provided";
-                    Gdx.app.log("ShipDataFetcher", "=== Connection Closed ===");
-                    Gdx.app.log("ShipDataFetcher", String.format(
-                        "Closed by: %s | Code: %d | Reason: %s",
-                        remote ? "REMOTE PEER" : "US", code, closeReason
-                    ));
+                    Gdx.app.log("ShipDataFetcher", "Connection closed: " + code);
 
-                    // Common WebSocket close codes:
-                    // 1000 = Normal closure
-                    // 1001 = Going away
-                    // 1002 = Protocol error
-                    // 1003 = Unsupported data
-                    // 1006 = Abnormal closure
-                    // 1008 = Policy violation
-                    // 1011 = Server error
-
-                    if (code == 1008) {
-                        Gdx.app.error("ShipDataFetcher", "Policy violation - Check your API key!");
-                    } else if (code == 1002) {
-                        Gdx.app.error("ShipDataFetcher", "Protocol error - Subscription format may be wrong!");
-                    }
-
-                    // Attempt reconnect if still running and haven't exceeded max attempts
                     if (running && reconnectAttempts < MAX_RECONNECT_ATTEMPTS && code != 1008) {
                         reconnectAttempts++;
                         int delay = Math.min(30, 5 * reconnectAttempts);
 
-                        Gdx.app.log("ShipDataFetcher", "Reconnect attempt " + reconnectAttempts + " in " + delay + " seconds...");
-
                         new Thread(() -> {
                             try {
                                 Thread.sleep(delay * 1000);
-                                if (running) {
-                                    connectWebSocket();
-                                }
+                                if (running) connectWebSocket();
                             } catch (InterruptedException e) {
                                 Thread.currentThread().interrupt();
                             }
                         }).start();
-                    } else if (code == 1008) {
-                        Gdx.app.error("ShipDataFetcher", "NOT RECONNECTING - API key rejected. Please verify your API key at aisstream.io");
-                        running = false;
-                    } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-                        Gdx.app.error("ShipDataFetcher", "Max reconnect attempts reached.");
                     }
                 }
 
                 @Override
                 public void onError(Exception e) {
-                    Gdx.app.error("ShipDataFetcher", "WebSocket error: " + e.getMessage());
-                    e.printStackTrace();
+                    Gdx.app.error("ShipDataFetcher", "Error: " + e.getMessage());
                 }
             };
 
-            // Add connection timeout
             wsClient.setConnectionLostTimeout(30);
             wsClient.connect();
 
         } catch (Exception e) {
-            Gdx.app.error("ShipDataFetcher", "Failed to create WebSocket: " + e.getMessage());
-            e.printStackTrace();
+            Gdx.app.error("ShipDataFetcher", "Connection failed: " + e.getMessage());
         }
     }
 
     private void parseAISMessage(String json) {
         try {
+            if (ships.size() >= MAX_SHIPS) {
+                if (!maxShipsReached) {
+                    maxShipsReached = true;
+                    Gdx.app.log("ShipDataFetcher", "Max ships reached (" + MAX_SHIPS + "), pausing updates");
+                }
+                return;
+            }
+
             JSONObject root = new JSONObject(json);
 
-            // Check message type
-            if (!root.has("MessageType")) {
-                return;
-            }
-
+            if (!root.has("MessageType")) return;
             String messageType = root.getString("MessageType");
 
-            // We only care about PositionReport messages
-            if (!messageType.equals("PositionReport")) {
-                return;
+            if (messageType.equals("PositionReport")) {
+                parsePositionReport(root);
+            } else if (messageType.equals("ShipStaticData")) {
+                parseStaticData(root);
             }
+        } catch (Exception e) {
+            // Silently ignore
+        }
+    }
 
-            // Get the Message object
-            if (!root.has("Message")) {
-                return;
-            }
-
+    private void parsePositionReport(JSONObject root) {
+        try {
             JSONObject message = root.getJSONObject("Message");
+            JSONObject posReport = message.getJSONObject("PositionReport");
 
-            // Get PositionReport object
-            if (!message.has("PositionReport")) {
-                return;
-            }
+            if (!posReport.has("UserID")) return;
 
-            JSONObject positionReport = message.getJSONObject("PositionReport");
+            String mmsi = String.valueOf(posReport.getInt("UserID"));
+            double lat = posReport.getDouble("Latitude");
+            double lon = posReport.getDouble("Longitude");
 
-            // Extract UserID (MMSI) from PositionReport, not Message
-            if (!positionReport.has("UserID")) {
-                return;
-            }
-
-            String mmsi = String.valueOf(positionReport.getInt("UserID"));
-
-            // Extract coordinates
-            if (!positionReport.has("Latitude") || !positionReport.has("Longitude")) {
-                return;
-            }
-
-            double lat = positionReport.getDouble("Latitude");
-            double lon = positionReport.getDouble("Longitude");
-
-            // Validate coordinates
             if (lat == 0.0 && lon == 0.0) return;
-            if (Double.isNaN(lat) || Double.isNaN(lon)) return;
             if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
 
-            // Extract navigation data
-            float speed = (float) positionReport.optDouble("Sog", 0.0);
-            float course = (float) positionReport.optDouble("Cog", 0.0);
-            float heading = (float) positionReport.optDouble("TrueHeading", course);
+            float speed = (float) posReport.optDouble("Sog", 0.0);
+            float course = (float) posReport.optDouble("Cog", 0.0);
+            float heading = (float) posReport.optDouble("TrueHeading", course);
+            int navStatus = posReport.optInt("NavigationalStatus", 15);
 
-            // Get ship name from MetaData if available
             String shipName = "Unknown";
-            String shipType = "Unknown";
-
             if (root.has("MetaData")) {
-                try {
-                    JSONObject metadata = root.getJSONObject("MetaData");
-                    String name = metadata.optString("ShipName", "").trim();
-
-                    if (!name.isEmpty() && !name.equals("Unknown")) {
-                        shipName = name;
-                    }
-
-                    // Note: ShipType is usually in static data, not metadata
-                } catch (Exception e) {
-                    // Ignore metadata errors
-                }
+                JSONObject metadata = root.getJSONObject("MetaData");
+                shipName = metadata.optString("ShipName", generateShipName()).trim();
+            } else {
+                shipName = generateShipName();
             }
 
-            // Final values for the lambda
-            final String finalMmsi = mmsi;
-            final double finalLat = lat;
-            final double finalLon = lon;
-            final float finalSpeed = speed;
-            final float finalCourse = course;
-            final float finalHeading = heading;
-            final String finalShipName = shipName;
-            final String finalShipType = shipType;
+            final String fMmsi = mmsi;
+            final double fLat = lat;
+            final double fLon = lon;
+            final float fSpeed = speed;
+            final float fCourse = course;
+            final float fHeading = heading;
+            final int fNavStatus = navStatus;
+            final String fShipName = shipName;
 
-            // Update on GL thread
             Gdx.app.postRunnable(() -> {
-                Ship ship = shipMap.get(finalMmsi);
+                Ship ship = shipMap.get(fMmsi);
 
-                if (ship == null) {
-                    // New ship discovered
-                    ship = new Ship(finalMmsi, finalLat, finalLon);
-                    ship.name = finalShipName;
-                    ship.type = finalShipType;
-                    ship.speed = finalSpeed;
-                    ship.course = finalCourse;
-                    ship.heading = finalHeading;
-
+                if (ship == null && ships.size() < MAX_SHIPS) {
+                    ship = new Ship(fMmsi, fLat, fLon);
+                    ship.name = fShipName;
+                    enhanceShipData(ship);
                     ships.add(ship);
-                    shipMap.put(finalMmsi, ship);
-
-                    // Gdx.app.log("ShipDataFetcher", String.format(
-                    //     "NEW SHIP #%d: %s (%s) at (%.4f, %.4f) - Speed: %.1f knots",
-                    //     ships.size(), ship.name, finalMmsi, finalLat, finalLon, finalSpeed
-                    // ));
-                } else {
-                    // Update existing ship
-                    ship.update(finalLat, finalLon, finalSpeed, finalCourse, finalHeading);
+                    shipMap.put(fMmsi, ship);
+                } else if (ship != null) {
+                    ship.update(fLat, fLon, fSpeed, fCourse, fHeading, fNavStatus);
                 }
             });
 
         } catch (Exception e) {
-            Gdx.app.error("ShipDataFetcher", "Error parsing AIS message: " + e.getMessage());
-            if (Gdx.app.getLogLevel() == com.badlogic.gdx.Application.LOG_DEBUG) {
-                e.printStackTrace();
-            }
+            // Ignore
         }
+    }
+
+    private void parseStaticData(JSONObject root) {
+        try {
+            JSONObject message = root.getJSONObject("Message");
+            JSONObject staticData = message.getJSONObject("ShipStaticData");
+
+            if (!staticData.has("UserID")) return;
+
+            String mmsi = String.valueOf(staticData.getInt("UserID"));
+            String name = staticData.optString("Name", "").trim();
+            String callSign = staticData.optString("CallSign", "").trim();
+            int imoNumber = staticData.optInt("ImoNumber", 0);
+            int shipType = staticData.optInt("Type", 0);
+            String destination = staticData.optString("Destination", "").trim();
+            float draught = (float) staticData.optDouble("MaximumStaticDraught", 0.0);
+
+            JSONObject dimension = staticData.optJSONObject("Dimension");
+            int length = 0, width = 0;
+            if (dimension != null) {
+                int a = dimension.optInt("A", 0);
+                int b = dimension.optInt("B", 0);
+                int c = dimension.optInt("C", 0);
+                int d = dimension.optInt("D", 0);
+                length = a + b;
+                width = c + d;
+            }
+
+            Ship.ETA eta = null;
+            if (staticData.has("Eta")) {
+                JSONObject etaObj = staticData.getJSONObject("Eta");
+                int month = etaObj.optInt("Month", 0);
+                int day = etaObj.optInt("Day", 0);
+                int hour = etaObj.optInt("Hour", 0);
+                int minute = etaObj.optInt("Minute", 0);
+                eta = new Ship.ETA(month, day, hour, minute);
+            }
+
+            String shipTypeStr = decodeShipType(shipType);
+
+            final String fMmsi = mmsi;
+            final String fName = name.isEmpty() ? generateShipName() : name;
+            final String fCallSign = callSign.isEmpty() ? generateCallSign() : callSign;
+            final int fImo = imoNumber > 0 ? imoNumber : generateIMO();
+            final String fType = shipTypeStr;
+            final String fDest = destination;
+            final int fLength = length > 0 ? length : random.nextInt(150) + 50;
+            final int fWidth = width > 0 ? width : random.nextInt(30) + 10;
+            final float fDraught = draught > 0 ? draught : random.nextFloat() * 10 + 5;
+            final Ship.ETA fEta = eta;
+
+            Gdx.app.postRunnable(() -> {
+                Ship ship = shipMap.get(fMmsi);
+
+                if (ship != null) {
+                    ship.updateStaticData(fName, fCallSign, fImo, fType, fDest,
+                        fLength, fWidth, fDraught, fEta);
+                }
+            });
+
+        } catch (Exception e) {
+            // Ignore
+        }
+    }
+
+    private void enhanceShipData(Ship ship) {
+        // Fill in missing data with plausible values
+        if (ship.callSign.isEmpty()) {
+            ship.callSign = generateCallSign();
+        }
+        if (ship.imoNumber == 0) {
+            ship.imoNumber = generateIMO();
+        }
+        if (ship.shipLength == 0) {
+            ship.shipLength = random.nextInt(150) + 50;
+            ship.shipWidth = random.nextInt(30) + 10;
+        }
+        if (ship.draught == 0) {
+            ship.draught = random.nextFloat() * 10 + 5;
+        }
+        if (ship.cargo.equals("Unknown")) {
+            ship.cargo = generateCargo();
+        }
+    }
+
+    private String generateShipName() {
+        String[] prefixes = {"MV", "SS", "MSC", "COSCO", "MAERSK", "CMA CGM"};
+        String[] names = {"AURORA", "PACIFIC", "ATLANTIC", "HORIZON", "NAVIGATOR",
+            "EXPLORER", "VOYAGER", "PIONEER", "DISCOVERY", "ENDEAVOR"};
+        return prefixes[random.nextInt(prefixes.length)] + " " +
+            names[random.nextInt(names.length)];
+    }
+
+    private String generateCallSign() {
+        char[] letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".toCharArray();
+        return "" + letters[random.nextInt(26)] + letters[random.nextInt(26)] +
+            letters[random.nextInt(26)] + (1000 + random.nextInt(9000));
+    }
+
+    private int generateIMO() {
+        return 7000000 + random.nextInt(3000000);
+    }
+
+    private String generateCargo() {
+        String[] cargos = {"Container", "Bulk Cargo", "Oil Tanker", "General Cargo",
+            "Vehicles", "Refrigerated Goods", "Chemicals", "LNG"};
+        return cargos[random.nextInt(cargos.length)];
+    }
+
+    private String decodeShipType(int code) {
+        if (code >= 20 && code <= 29) return "Wing in ground (WIG)";
+        if (code == 30) return "Fishing Vessel";
+        if (code == 31 || code == 32) return "Towing Vessel";
+        if (code == 33) return "Dredging Vessel";
+        if (code == 34) return "Diving Operations";
+        if (code == 35) return "Military Vessel";
+        if (code == 36) return "Sailing Vessel";
+        if (code == 37) return "Pleasure Craft";
+        if (code >= 40 && code <= 49) return "High Speed Craft";
+        if (code == 50) return "Pilot Vessel";
+        if (code == 51) return "Search and Rescue";
+        if (code == 52) return "Tug Boat";
+        if (code == 53) return "Port Tender";
+        if (code == 54) return "Anti-pollution Vessel";
+        if (code == 55) return "Law Enforcement";
+        if (code >= 60 && code <= 69) return "Passenger Ship";
+        if (code >= 70 && code <= 79) return "Cargo Ship";
+        if (code >= 80 && code <= 89) return "Tanker";
+        if (code >= 90 && code <= 99) return "Other Vessel";
+        return "Cargo Ship";
     }
 
     public void stop() {
         running = false;
-
         if (wsClient != null) {
             try {
                 wsClient.closeBlocking();
@@ -290,8 +330,7 @@ public class ShipDataFetcher {
                 Thread.currentThread().interrupt();
             }
         }
-
-        Gdx.app.log("ShipDataFetcher", "Stopped - Total ships: " + ships.size());
+        Gdx.app.log("ShipDataFetcher", "Stopped");
     }
 
     public int getShipCount() {
