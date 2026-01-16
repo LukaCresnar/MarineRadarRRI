@@ -1,4 +1,6 @@
-package si.um.feri.project.marineRadar;
+package si.um.feri.project.marineRadar.ship;
+
+import si.um.feri.project.marineRadar.LocationHelper;
 
 public class Ship {
     // Basic identification

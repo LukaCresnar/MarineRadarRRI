@@ -1,4 +1,4 @@
-package si.um.feri.project.marineRadar;
+package si.um.feri.project.marineRadar.ship;
 
 import com.badlogic.gdx.Gdx;
 import org.java_websocket.client.WebSocketClient;
@@ -21,7 +21,7 @@ public class ShipDataFetcher {
     private boolean running = false;
     private int reconnectAttempts = 0;
     private static final int MAX_RECONNECT_ATTEMPTS = 10;
-    private static final int MAX_SHIPS = 1000; // Limit to prevent lag
+    private int maxShips = 1000; // Limit to prevent lag
     private boolean maxShipsReached = false;
 
     private static final String API_KEY = "fd72c19f82a5c62bda5c4cc17866c4e3577920a5";
@@ -31,6 +31,13 @@ public class ShipDataFetcher {
 
     public ShipDataFetcher(List<Ship> ships) {
         this.ships = ships;
+    }
+
+    public void setMaxShips(int maxShips) {
+        this.maxShips = maxShips;
+        if (ships.size() < maxShips) {
+            maxShipsReached = false;
+        }
     }
 
     public void startFetching() {
@@ -113,10 +120,10 @@ public class ShipDataFetcher {
 
     private void parseAISMessage(String json) {
         try {
-            if (ships.size() >= MAX_SHIPS) {
+            if (ships.size() >= maxShips) {
                 if (!maxShipsReached) {
                     maxShipsReached = true;
-                    Gdx.app.log("ShipDataFetcher", "Max ships reached (" + MAX_SHIPS + "), pausing updates");
+                    Gdx.app.log("ShipDataFetcher", "Max ships reached (" + maxShips + "), pausing updates");
                 }
                 return;
             }
@@ -175,7 +182,7 @@ public class ShipDataFetcher {
             Gdx.app.postRunnable(() -> {
                 Ship ship = shipMap.get(fMmsi);
 
-                if (ship == null && ships.size() < MAX_SHIPS) {
+                if (ship == null && ships.size() < maxShips) {
                     ship = new Ship(fMmsi, fLat, fLon);
                     ship.name = fShipName;
                     enhanceShipData(ship);

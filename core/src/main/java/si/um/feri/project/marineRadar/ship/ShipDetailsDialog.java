@@ -1,4 +1,4 @@
-package si.um.feri.project.marineRadar;
+package si.um.feri.project.marineRadar.ship;
 
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.ui.*;

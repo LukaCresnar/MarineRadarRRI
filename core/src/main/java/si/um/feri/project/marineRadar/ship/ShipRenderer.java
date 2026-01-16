@@ -1,10 +1,11 @@
-package si.um.feri.project.marineRadar;
+package si.um.feri.project.marineRadar.ship;
 
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
+import si.um.feri.project.marineRadar.map.TileMapRenderer;
 
 import java.util.List;
 

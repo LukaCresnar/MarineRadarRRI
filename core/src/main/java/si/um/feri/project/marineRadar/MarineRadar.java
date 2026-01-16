@@ -10,8 +10,14 @@ import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
+import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.utils.viewport.ScreenViewport;
+import si.um.feri.project.marineRadar.map.TileMapRenderer;
+import si.um.feri.project.marineRadar.ship.Ship;
+import si.um.feri.project.marineRadar.ship.Ship3DRenderer;
+import si.um.feri.project.marineRadar.ship.ShipDataFetcher;
+import si.um.feri.project.marineRadar.ship.ShipSearchPanel;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +49,10 @@ public class MarineRadar extends ApplicationAdapter {
     private List<Ship> ships;
     private Ship selectedShip = null;
     private ShipDataFetcher shipDataFetcher;
+
+    private Dialog settingsDialog;
+    private Slider maxShipsSlider;
+    private Label maxShipsValueLabel;
 
     private InputMultiplexer inputMultiplexer;
     private MapInputProcessor mapInputProcessor;
@@ -109,12 +119,74 @@ public class MarineRadar extends ApplicationAdapter {
         infoPanel.add(shipCountLabel).left().row();
         infoPanel.add(connectionLabel).left().row();
 
-        Table buttonTable = new Table();
+        mainTable.add(infoPanel).left().row();
 
+        TextButton settingsButton = new TextButton("Settings", skin);
+        settingsButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                showSettingsDialog();
+            }
+        });
+
+        mainTable.add(settingsButton).left().padTop(10).row();
+
+        shipSearchPanel = new ShipSearchPanel(ships, skin, new ShipSearchPanel.ShipSelectionListener() {
+            @Override
+            public void onShipSelected(Ship ship) {
+                selectedSearchShip = ship;
+            }
+
+            @Override
+            public void onShipDoubleClicked(Ship ship) {
+                selectedSearchShip = ship;
+                centerOnSelectedShip();
+            }
+        });
+        shipSearchPanel.setVisible(false);
+        mainTable.add(shipSearchPanel).left().padTop(10).row();
+
+        uiStage.addActor(mainTable);
+
+        createSettingsDialog();
+    }
+
+    private void createSettingsDialog() {
+        settingsDialog = new Dialog("Settings", skin);
+
+        Table contentTable = new Table();
+        contentTable.pad(20);
+
+        // Max Ships Slider
+        Label maxShipsLabel = new Label("Max Ships: ", skin);
+        maxShipsSlider = new Slider(100, 2000, 50, false, skin);
+        maxShipsSlider.setValue(1000);
+        maxShipsValueLabel = new Label("1000", skin);
+
+        maxShipsSlider.addListener(event -> {
+            if (event instanceof ChangeListener.ChangeEvent) {
+                int value = (int) maxShipsSlider.getValue();
+                maxShipsValueLabel.setText(String.valueOf(value));
+                shipDataFetcher.setMaxShips(value);
+                return true;
+            }
+            return false;
+        });
+
+        Table sliderTable = new Table();
+        sliderTable.add(maxShipsLabel);
+        sliderTable.add(maxShipsSlider).width(200).padLeft(10);
+        sliderTable.add(maxShipsValueLabel).padLeft(10);
+
+        contentTable.add(sliderTable).row();
+        contentTable.padBottom(20);
+
+        // Buttons
         TextButton helpButton = new TextButton("Help", skin);
         helpButton.addListener(new ClickListener() {
             @Override
             public void clicked(InputEvent event, float x, float y) {
+                settingsDialog.hide();
                 showHelpScreen();
             }
         });
@@ -131,6 +203,7 @@ public class MarineRadar extends ApplicationAdapter {
         centerButton.addListener(new ClickListener() {
             @Override
             public void clicked(InputEvent event, float x, float y) {
+                settingsDialog.hide();
                 centerCamera();
             }
         });
@@ -159,32 +232,24 @@ public class MarineRadar extends ApplicationAdapter {
             }
         });
 
+        Table buttonTable = new Table();
         buttonTable.add(helpButton).pad(5);
-        buttonTable.add(radarToggle).pad(5);
+        buttonTable.add(radarToggle).pad(5).row();
         buttonTable.add(centerButton).pad(5);
-        buttonTable.add(toggleSearchButton).pad(5);
+        buttonTable.add(toggleSearchButton).pad(5).row();
         buttonTable.add(toggleCloudsButton).pad(5);
         buttonTable.add(toggleRoutesButton).pad(5);
 
-        mainTable.add(infoPanel).left().row();
-        mainTable.add(buttonTable).left().padTop(10).row();
+        contentTable.add(buttonTable).row();
 
-        shipSearchPanel = new ShipSearchPanel(ships, skin, new ShipSearchPanel.ShipSelectionListener() {
-            @Override
-            public void onShipSelected(Ship ship) {
-                selectedSearchShip = ship;
-            }
+        settingsDialog.getContentTable().add(contentTable);
 
-            @Override
-            public void onShipDoubleClicked(Ship ship) {
-                selectedSearchShip = ship;
-                centerOnSelectedShip();
-            }
-        });
-        shipSearchPanel.setVisible(false);
-        mainTable.add(shipSearchPanel).left().padTop(10).row();
+        TextButton closeButton = new TextButton("Close", skin);
+        settingsDialog.button(closeButton);
+    }
 
-        uiStage.addActor(mainTable);
+    private void showSettingsDialog() {
+        settingsDialog.show(uiStage);
     }
 
     @Override

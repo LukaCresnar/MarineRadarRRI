@@ -1,4 +1,4 @@
-package si.um.feri.project.marineRadar;
+package si.um.feri.project.marineRadar.map;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.OrthographicCamera;
@@ -7,12 +7,14 @@ import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.math.Vector3;
+import si.um.feri.project.marineRadar.clouds.CloudsLayer;
 
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.*;
 import java.util.concurrent.*;
+import java.io.ByteArrayOutputStream;
 
 public class TileMapRenderer {
 
@@ -60,9 +62,9 @@ public class TileMapRenderer {
 
     public void render() {
         frameCounter++;
-        
+
         int worldSize = TILE_SIZE * (1 << zoomLevel);
-        
+
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
 
@@ -123,7 +125,7 @@ public class TileMapRenderer {
         }
 
         batch.end();
-        
+
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
         cloudsLayer.render(batch, zoomLevel, worldSize);
@@ -140,7 +142,7 @@ public class TileMapRenderer {
             int windowHeight = (int) camera.viewportHeight;
             Gdx.app.log("TileMapRenderer", String.format(
                 "Frame %d | Zoom: %d | Map: %dx%d | Window: %dx%d | Rendered: %d | Missing: %d | Cache: %d | Loading: %d | Failed: %d",
-                frameCounter, zoomLevel, worldSize, worldSize, windowWidth, windowHeight, 
+                frameCounter, zoomLevel, worldSize, worldSize, windowWidth, windowHeight,
                 rendered, missing, tileCache.size(), loadingTiles.size(), failedTiles.size()
             ));
         }
@@ -185,21 +187,21 @@ public class TileMapRenderer {
             conn.setRequestProperty("User-Agent", "MarineRadar/1.0 LibGDX");
             conn.setConnectTimeout(8000);
             conn.setReadTimeout(8000);
-            
-            // Small delay 
+
+            // Small delay
             // try {
             //     Thread.sleep(50);
             // } catch (InterruptedException e) {
             //     Thread.currentThread().interrupt();
             // }
-            
+
             conn.connect();
 
             int responseCode = conn.getResponseCode();
 
             if (responseCode == 200) {
                 InputStream stream = conn.getInputStream();
-                byte[] data = stream.readAllBytes();
+                byte[] data = readAllBytesFromStream(stream);
                 stream.close();
 
                 // Create texture on GL thread
@@ -281,7 +283,7 @@ public class TileMapRenderer {
         // Get world coordinates before zoom
         Vector3 worldBefore = camera.unproject(new Vector3(mouseX, mouseY, 0));
 
-        // Apply zoom 
+        // Apply zoom
         camera.zoom *= (1 + scrollAmount * 0.1f);
         camera.update();
 
@@ -443,6 +445,16 @@ public class TileMapRenderer {
         }
     }
 
+    private byte[] readAllBytesFromStream(InputStream stream) throws Exception {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        int nRead;
+        byte[] data = new byte[16384];
+        while ((nRead = stream.read(data, 0, data.length)) != -1) {
+            buffer.write(data, 0, nRead);
+        }
+        return buffer.toByteArray();
+    }
+
     private String getTileKey(int zoom, int x, int y) {
         return zoom + "_" + x + "_" + y;
     }
@@ -483,13 +495,13 @@ public class TileMapRenderer {
         tileLastUsed.clear();
         loadingTiles.clear();
         failedTiles.clear();
-        
+
         cloudsLayer.dispose();
         batch.dispose();
 
         Gdx.app.log("TileMapRenderer", "Disposed");
     }
-    
+
     public void toggleClouds() {
         cloudsLayer.setVisible(!cloudsLayer.isVisible());
     }

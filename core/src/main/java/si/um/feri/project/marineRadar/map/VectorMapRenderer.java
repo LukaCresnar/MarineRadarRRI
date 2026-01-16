@@ -1,4 +1,4 @@
-package si.um.feri.project.marineRadar;
+package si.um.feri.project.marineRadar.map;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
@@ -13,6 +13,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.InputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -59,7 +61,13 @@ public class VectorMapRenderer {
     private void loadGeoJSON(String filename) {
         try {
             InputStream is = Gdx.files.internal(filename).read();
-            String text = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+            String text = sb.toString();
 
             JSONObject geojson = new JSONObject(text);
             JSONArray features = geojson.getJSONArray("features");
