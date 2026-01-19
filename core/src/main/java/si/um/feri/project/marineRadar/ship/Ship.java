@@ -83,12 +83,6 @@ public class Ship {
         
         // Only update location history every 2 seconds
         if (currentTime - lastLocationUpdateTime >= UPDATE_INTERVAL_MS) {
-            // Calculate rotation based on previous and current location
-            if (!locationHistory.isEmpty()) {
-                double[] lastLocation = locationHistory.get(locationHistory.size() - 1);
-                this.rotation = calculateRotation(lastLocation[0], lastLocation[1], lat, lon);
-            }
-            
             // Add current location to history
             locationHistory.add(new double[]{lat, lon});
             
@@ -96,6 +90,9 @@ public class Ship {
             while (locationHistory.size() > MAX_LOCATION_HISTORY) {
                 locationHistory.remove(0);
             }
+            
+            // Recompute smoothed rotation based on recent history
+            recomputeRotationFromHistory();
             
             // Debug log for selected ship (clicked)
             if (isSelected) {
@@ -147,14 +144,14 @@ public class Ship {
         this.lon = newLon;
         this.timestamp = System.currentTimeMillis();
 
-        // Update rotation based on movement
-        this.rotation = calculateRotation(prevLat, prevLon, newLat, newLon);
-
         // Add to history and clamp size
         locationHistory.add(new double[]{newLat, newLon});
         while (locationHistory.size() > MAX_LOCATION_HISTORY) {
             locationHistory.remove(0);
         }
+
+        // Recompute smoothed rotation based on recent history
+        recomputeRotationFromHistory();
 
         // Update route destination based on current course/speed
         routeInfo.updateDestination(lat, lon, course, speed);
@@ -176,24 +173,61 @@ public class Ship {
     private float calculateRotation(double prevLat, double prevLon, double currLat, double currLon) {
         double deltaLon = currLon - prevLon;
         double deltaLat = currLat - prevLat;
-        
+
         // If no significant movement, keep previous rotation
-        if (Math.abs(deltaLat) < 0.00001 && Math.abs(deltaLon) < 0.00001) {
+        if (Math.abs(deltaLat) < 0.0000001 && Math.abs(deltaLon) < 0.0000001) {
             return this.rotation;
         }
-        
-        // Calculate bearing using atan2
-        // atan2 returns angle from -PI to PI, where 0 is East
-        // We need to convert to compass bearing where 0 is North
-        double angleRad = Math.atan2(deltaLon, deltaLat);
+
+        // Account for longitude scaling at given latitude (approximate)
+        double meanLatRad = Math.toRadians((prevLat + currLat) / 2.0);
+        double scaledDeltaLon = deltaLon * Math.cos(meanLatRad);
+
+        // Calculate bearing using atan2(scaledLon, lat)
+        double angleRad = Math.atan2(scaledDeltaLon, deltaLat);
         float angleDeg = (float) Math.toDegrees(angleRad);
-        
+
         // Normalize to 0-360 range
         if (angleDeg < 0) {
-            angleDeg += 360;
+            angleDeg += 360f;
         }
-        
+
         return angleDeg;
+    }
+
+    /**
+     * Recompute rotation from recent location history using vector-averaged bearings
+     */
+    private void recomputeRotationFromHistory() {
+        int n = locationHistory.size();
+        if (n < 2) return;
+
+        int pairs = Math.min(3, n - 1); // average last up to 3 movements
+        double sumX = 0.0, sumY = 0.0;
+
+        for (int k = 1; k <= pairs; k++) {
+            double[] prev = locationHistory.get(n - 1 - k);
+            double[] curr = locationHistory.get(n - k);
+            double deltaLon = curr[1] - prev[1];
+            double deltaLat = curr[0] - prev[0];
+
+            if (Math.abs(deltaLon) < 1e-12 && Math.abs(deltaLat) < 1e-12) continue;
+
+            // Scale longitude by cos(meanLat) to account for longitude distance at latitude
+            double meanLatRad = Math.toRadians((prev[0] + curr[0]) / 2.0);
+            double scaledDeltaLon = deltaLon * Math.cos(meanLatRad);
+
+            double ang = Math.atan2(scaledDeltaLon, deltaLat); // adjusted angle
+            sumX += Math.cos(ang);
+            sumY += Math.sin(ang);
+        }
+
+        if (Math.abs(sumX) < 1e-12 && Math.abs(sumY) < 1e-12) return;
+
+        double avgAng = Math.atan2(sumY, sumX);
+        float avgDeg = (float) Math.toDegrees(avgAng);
+        if (avgDeg < 0) avgDeg += 360f;
+        this.rotation = avgDeg;
     }
 
     public void updateStaticData(String name, String callSign, int imoNumber, String shipType,

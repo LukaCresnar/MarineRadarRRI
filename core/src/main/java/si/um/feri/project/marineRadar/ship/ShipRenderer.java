@@ -24,6 +24,7 @@ public class ShipRenderer {
     private Map<String, Texture> shipIcons = new HashMap<>();
     private static final int MIN_ZOOM_FOR_ICONS = 8; // Show icons at zoom level 8+
     private static final float ICON_ROTATION_ADJUST = 0f; // Adjustment in degrees; use 0 and tweak if needed
+    private static final float ICON_DRAW_OFFSET = -90f; // Screen-space offset (degrees) if icon graphic baseline needs shift
 
     // Colors
     private static final Color SHIP_DEFAULT = new Color(1f, 0f, 0f, 1f);      // Red
@@ -32,6 +33,7 @@ public class ShipRenderer {
     private static final Color SHIP_MOORED = new Color(0.5f, 0.5f, 0.5f, 1f); // Gray
     private static final Color ROUTE_LINE = new Color(0f, 1f, 1f, 0.5f);      // Cyan
     private static final Color HEADING_LINE = new Color(1f, 0.5f, 0f, 0.8f);  // Orange
+    private static final Color PATH_COLOR = new Color(0f, 0f, 0f, 1f);       // Black path for selected ship
 
     public ShipRenderer(ShapeRenderer shapeRenderer, TileMapRenderer mapRenderer) {
         this.shapeRenderer = shapeRenderer;
@@ -125,6 +127,62 @@ public class ShipRenderer {
             }
         }
         shapeRenderer.end();
+
+        // Draw path (location history) for selected ship
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        for (Ship ship : ships) {
+            if (ship.isSelected && ship.locationHistory.size() > 1) {
+                shapeRenderer.setColor(PATH_COLOR);
+                List<double[]> hist = ship.locationHistory;
+                for (int i = 1; i < hist.size(); i++) {
+                    double[] prev = hist.get(i - 1);
+                    double[] cur = hist.get(i);
+                    Vector2 p0 = mapRenderer.latLonToPixel(prev[0], prev[1]);
+                    Vector2 p1 = mapRenderer.latLonToPixel(cur[0], cur[1]);
+                    shapeRenderer.line(p0.x, p0.y, p1.x, p1.y);
+                }
+
+                // Debug overlays: show movement-based rotation and recent segment bearing
+                // Compute last segment
+                double[] last = hist.get(hist.size() - 1);
+                double[] prev = hist.get(hist.size() - 2);
+                Vector2 lastP = mapRenderer.latLonToPixel(last[0], last[1]);
+
+                // Movement-smoothed rotation (compass degrees) -> screen angle
+                float movementBearing = ship.rotation; // 0 = North
+                float screenAngMovement = (movementBearing - 90f) * MathUtils.degreesToRadians;
+                float len = 40f / Math.max(0.5f, 1f); // fixed length in pixels
+                float mx = lastP.x + MathUtils.cos(screenAngMovement) * len;
+                float my = lastP.y + MathUtils.sin(screenAngMovement) * len;
+
+                // Last-segment immediate bearing
+                float segBearing = computeBearing(prev[0], prev[1], last[0], last[1]);
+                float screenAngSeg = (segBearing - 90f) * MathUtils.degreesToRadians;
+                float sx = lastP.x + MathUtils.cos(screenAngSeg) * len;
+                float sy = lastP.y + MathUtils.sin(screenAngSeg) * len;
+
+                // Course-based direction
+                float courseScreenAng = (ship.course - 90f) * MathUtils.degreesToRadians;
+                float cx = lastP.x + MathUtils.cos(courseScreenAng) * len;
+                float cy = lastP.y + MathUtils.sin(courseScreenAng) * len;
+
+                // Draw movement bearing in magenta
+                shapeRenderer.setColor(1f, 0f, 1f, 1f);
+                shapeRenderer.line(lastP.x, lastP.y, mx, my);
+
+                // Draw last-segment bearing in blue
+                shapeRenderer.setColor(0f, 0f, 1f, 1f);
+                shapeRenderer.line(lastP.x, lastP.y, sx, sy);
+
+                // Draw course in orange (heading color)
+                shapeRenderer.setColor(HEADING_LINE);
+                shapeRenderer.line(lastP.x, lastP.y, cx, cy);
+
+                // Log debug info
+                Gdx.app.log("ShipDebug", String.format("%s rot=%.1f seg=%.1f course=%.1f", ship.name, ship.rotation, segBearing, ship.course));
+            }
+        }
+        shapeRenderer.end();
     }
 
     private void drawShipIcon(Ship ship, Ship selectedShip, Ship trackedShip, float zoom) {
@@ -164,22 +222,26 @@ public class ShipRenderer {
         float halfWidth = width / 2f;
         float halfHeight = height / 2f;
 
-        // Compute icon rotation based on projected route (same as drawRoute)
-        // Project 2 hours ahead (same heuristic) and compute bearing to that point
-        float drawRotation;
-        if (ship.speed > 0.1f) {
-            float distance = ship.speed * 2; // same 2-hour projection
-            float courseRad = ship.course * MathUtils.degreesToRadians;
-            double latOffset = Math.cos(courseRad) * distance / 60.0;
-            double lonOffset = Math.sin(courseRad) * distance / 60.0;
-            double futureLat = ship.lat + latOffset;
-            double futureLon = ship.lon + lonOffset;
-
-            float bearing = computeBearing(ship.lat, ship.lon, futureLat, futureLon);
-            drawRotation = bearing - 90f + ICON_ROTATION_ADJUST;
-        } else {
-            // Fallback to course when stationary or no speed
-            drawRotation = ship.course - 90f + ICON_ROTATION_ADJUST;
+        // Compute screen-space rotation by averaging recent locationHistory segments in pixel space
+        float drawRotation = ship.course - 90f + ICON_ROTATION_ADJUST; // default
+        if (ship.locationHistory.size() >= 2) {
+            List<double[]> hist = ship.locationHistory;
+            int n = hist.size();
+            int pairs = Math.min(3, n - 1);
+            float sumDx = 0f, sumDy = 0f;
+            for (int k = 1; k <= pairs; k++) {
+                double[] prev = hist.get(n - 1 - k);
+                double[] curr = hist.get(n - k);
+                Vector2 p0 = mapRenderer.latLonToPixel(prev[0], prev[1]);
+                Vector2 p1 = mapRenderer.latLonToPixel(curr[0], curr[1]);
+                sumDx += (p1.x - p0.x);
+                sumDy += (p1.y - p0.y);
+            }
+            if (Math.abs(sumDx) > 1e-6 || Math.abs(sumDy) > 1e-6) {
+                float angleRad = (float)Math.atan2(sumDy, sumDx);
+                float angleDeg = angleRad * MathUtils.radiansToDegrees;
+                drawRotation = angleDeg + ICON_DRAW_OFFSET;
+            }
         }
 
         // Draw rotated icon (origin at center)
@@ -247,40 +309,30 @@ public class ShipRenderer {
 
     /**
      * Compute compass bearing (degrees, 0 = North) from (lat1,lon1) to (lat2,lon2).
+     * Uses longitude scaling by mean latitude to approximate true bearing on Mercator map.
      */
     private float computeBearing(double lat1, double lon1, double lat2, double lon2) {
         double deltaLon = lon2 - lon1;
         double deltaLat = lat2 - lat1;
+        if (Math.abs(deltaLat) < 1e-12 && Math.abs(deltaLon) < 1e-12) return 0f;
 
-        // If no significant movement, return 0
-        if (Math.abs(deltaLat) < 1e-9 && Math.abs(deltaLon) < 1e-9) return 0f;
-
-        double angleRad = Math.atan2(deltaLon, deltaLat);
+        double meanLatRad = Math.toRadians((lat1 + lat2) / 2.0);
+        double scaledDeltaLon = deltaLon * Math.cos(meanLatRad);
+        double angleRad = Math.atan2(scaledDeltaLon, deltaLat);
         float angleDeg = (float) Math.toDegrees(angleRad);
         if (angleDeg < 0) angleDeg += 360f;
         return angleDeg;
     }
+
 
     private void drawRoute(Ship ship, float zoom) {
         if (!ship.isMoving() || ship.destination.equals("Unknown")) return;
 
         Vector2 pos = mapRenderer.latLonToPixel(ship.lat, ship.lon);
 
-        // Calculate approximate destination point (simplified)
-        // In reality, you'd need to decode the destination coordinates
-        // For now, draw a projected line based on course and speed
-
-        float distance = ship.speed * 2; // Approximate 2-hour projection
-        float courseRad = ship.course * MathUtils.degreesToRadians;
-
-        // Convert nautical miles to approximate lat/lon offset
-        double latOffset = Math.cos(courseRad) * distance / 60.0;
-        double lonOffset = Math.sin(courseRad) * distance / 60.0;
-
-        Vector2 futurePos = mapRenderer.latLonToPixel(
-            ship.lat + latOffset,
-            ship.lon + lonOffset
-        );
+        // Use the ship's RouteInfo destination (keeps route and icon math consistent)
+        if (ship.routeInfo == null) return;
+        Vector2 futurePos = mapRenderer.latLonToPixel(ship.routeInfo.destLat, ship.routeInfo.destLon);
 
         shapeRenderer.setColor(ROUTE_LINE);
         shapeRenderer.line(pos.x, pos.y, futurePos.x, futurePos.y);
