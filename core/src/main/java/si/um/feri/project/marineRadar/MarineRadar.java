@@ -18,6 +18,7 @@ import si.um.feri.project.marineRadar.ship.Ship;
 import si.um.feri.project.marineRadar.ship.Ship3DRenderer;
 import si.um.feri.project.marineRadar.ship.ShipDataFetcher;
 import si.um.feri.project.marineRadar.ship.ShipSearchPanel;
+import si.um.feri.project.marineRadar.ship.ShipRenderer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,6 +33,7 @@ public class MarineRadar extends ApplicationAdapter {
     private boolean dragging = false;
 
     private Ship3DRenderer ship3DRenderer;
+    private ShipRenderer shipRenderer;
     private boolean show3DMode = false;
 
     private Stage uiStage;
@@ -84,6 +86,7 @@ public class MarineRadar extends ApplicationAdapter {
         shipDataFetcher.startFetching();
 
         ship3DRenderer = new Ship3DRenderer(map);
+        shipRenderer = new ShipRenderer(shapeRenderer, map);
 
         setupUI();
 
@@ -260,10 +263,21 @@ public class MarineRadar extends ApplicationAdapter {
         updateRadar(delta);
         updateCameraAnimation(delta);
         updateUI();
+        
+        // Interpolate ship positions every 2 seconds for smooth movement
+        for (Ship ship : ships) {
+            ship.interpolatePosition();
+        }
 
         if ((long) (Gdx.graphics.getFrameId()) % 30 == 0) {
             shipSearchPanel.refreshShips();
         }
+
+        // --- DEBUG: Log zoom level and camera zoom ---
+        if (Gdx.graphics.getFrameId() % 60 == 0) {
+            Gdx.app.log("MarineRadar", "Zoom label: " + map.getZoomLevel() + ", camera.zoom: " + camera.zoom);
+        }
+        // --- END DEBUG ---
 
         Gdx.gl.glClearColor(0.0039f, 0.6431f, 0.9137f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
@@ -272,7 +286,8 @@ public class MarineRadar extends ApplicationAdapter {
         map.render();
 
         if (!show3DMode) {
-            renderShipsEnhanced();
+            // Use ShipRenderer (icons/dots) instead of manual rendering
+            shipRenderer.render(camera, ships, selectedShip, selectedShip);
         }
 
         if (show3DMode && ship3DRenderer.isActive()) {
@@ -618,6 +633,7 @@ public class MarineRadar extends ApplicationAdapter {
         skin.dispose();
         ship3DRenderer.dispose();
         shipDataFetcher.stop();
+        if (shipRenderer != null) shipRenderer.dispose();
     }
 
     private class MapInputProcessor extends InputAdapter {
@@ -634,7 +650,12 @@ public class MarineRadar extends ApplicationAdapter {
                 Ship clicked = findShipAt(worldPos.x, worldPos.y);
 
                 if (clicked != null) {
+                    // Clear previous selection
+                    if (selectedShip != null) {
+                        selectedShip.isSelected = false;
+                    }
                     selectedShip = clicked;
+                    selectedShip.isSelected = true;
                     showShipDetails(clicked);
                     return true;
                 }

@@ -1,18 +1,29 @@
 package si.um.feri.project.marineRadar.ship;
 
+import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.OrthographicCamera;
+import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
 import si.um.feri.project.marineRadar.map.TileMapRenderer;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class ShipRenderer {
 
     private final ShapeRenderer shapeRenderer;
     private final TileMapRenderer mapRenderer;
+    private SpriteBatch spriteBatch;
+
+    // Ship icons
+    private Map<String, Texture> shipIcons = new HashMap<>();
+    private static final int MIN_ZOOM_FOR_ICONS = 8; // Show icons at zoom level 8+
+    private static final float ICON_ROTATION_ADJUST = 180f; // Add 180° so icon faces direction correctly
 
     // Colors
     private static final Color SHIP_DEFAULT = new Color(1f, 0f, 0f, 1f);      // Red
@@ -25,9 +36,59 @@ public class ShipRenderer {
     public ShipRenderer(ShapeRenderer shapeRenderer, TileMapRenderer mapRenderer) {
         this.shapeRenderer = shapeRenderer;
         this.mapRenderer = mapRenderer;
+        this.spriteBatch = new SpriteBatch();
+        loadShipIcons();
+    }
+
+    private void loadShipIcons() {
+        try {
+            shipIcons.put("cargo", new Texture(Gdx.files.internal("imgs/cargoShip.png")));
+            shipIcons.put("tanker", new Texture(Gdx.files.internal("imgs/tankerShip.png")));
+            shipIcons.put("passenger", new Texture(Gdx.files.internal("imgs/cruiseShip.png")));
+            shipIcons.put("fishing", new Texture(Gdx.files.internal("imgs/fishingShip.png")));
+            shipIcons.put("tug", new Texture(Gdx.files.internal("imgs/tugShip.png")));
+            shipIcons.put("military", new Texture(Gdx.files.internal("imgs/militaryShip.png")));
+            shipIcons.put("sailing", new Texture(Gdx.files.internal("imgs/sailShip.png")));
+            shipIcons.put("fast", new Texture(Gdx.files.internal("imgs/fastShip.png")));
+            shipIcons.put("special", new Texture(Gdx.files.internal("imgs/specialShip.png")));
+            shipIcons.put("generic", new Texture(Gdx.files.internal("imgs/genericShip.png")));
+            Gdx.app.log("ShipRenderer", "Ship icons loaded successfully");
+        } catch (Exception e) {
+            Gdx.app.error("ShipRenderer", "Failed to load ship icons: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Get icon category based on ship type string
+     */
+    private String getIconCategory(Ship ship) {
+        String type = ship.shipType;
+        if (type == null) return "generic";
+
+        // Match based on ship type description
+        if (type.contains("Cargo")) return "cargo";
+        if (type.contains("Tanker")) return "tanker";
+        if (type.contains("Passenger")) return "passenger";
+        if (type.contains("Fishing")) return "fishing";
+        if (type.contains("Tug") || type.contains("Towing") || type.contains("Pilot") || 
+            type.contains("Port Tender") || type.contains("Anti-pollution") || type.contains("Law Enforcement")) return "tug";
+        if (type.contains("Military")) return "military";
+        if (type.contains("Sailing") || type.contains("Pleasure")) return "sailing";
+        if (type.contains("High Speed")) return "fast";
+        if (type.contains("Dredging") || type.contains("Diving") || type.contains("Search and Rescue")) return "special";
+        
+        return "generic";
     }
 
     public void render(OrthographicCamera camera, List<Ship> ships, Ship selectedShip, Ship trackedShip) {
+        int zoomLevel = mapRenderer.getZoomLevel();
+        boolean useIcons = zoomLevel >= MIN_ZOOM_FOR_ICONS && !shipIcons.isEmpty();
+        
+        // Debug: log zoom level occasionally
+        if (Gdx.graphics.getFrameId() % 60 == 0) {
+            Gdx.app.log("ShipRenderer", "Zoom level: " + zoomLevel + ", useIcons: " + useIcons + ", iconsLoaded: " + shipIcons.size());
+        }
+
         shapeRenderer.setProjectionMatrix(camera.combined);
 
         // Draw routes first (behind ships)
@@ -39,12 +100,22 @@ public class ShipRenderer {
         }
         shapeRenderer.end();
 
-        // Draw ships
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        for (Ship ship : ships) {
-            drawShip(ship, selectedShip, trackedShip, camera.zoom);
+        if (useIcons) {
+            // Draw ship icons
+            spriteBatch.setProjectionMatrix(camera.combined);
+            spriteBatch.begin();
+            for (Ship ship : ships) {
+                drawShipIcon(ship, selectedShip, trackedShip, camera.zoom);
+            }
+            spriteBatch.end();
+        } else {
+            // Draw ships as dots
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+            for (Ship ship : ships) {
+                drawShipDot(ship, selectedShip, trackedShip, camera.zoom);
+            }
+            shapeRenderer.end();
         }
-        shapeRenderer.end();
 
         // Draw heading indicators
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
@@ -56,7 +127,62 @@ public class ShipRenderer {
         shapeRenderer.end();
     }
 
-    private void drawShip(Ship ship, Ship selectedShip, Ship trackedShip, float zoom) {
+    private void drawShipIcon(Ship ship, Ship selectedShip, Ship trackedShip, float zoom) {
+        Vector2 pos = mapRenderer.latLonToPixel(ship.lat, ship.lon);
+        
+        String iconCategory = getIconCategory(ship);
+        Texture icon = shipIcons.get(iconCategory);
+        if (icon == null) {
+            icon = shipIcons.get("generic");
+        }
+        if (icon == null) return;
+
+        // Determine size based on selection state (then scale by 1.5x)
+        float baseHeight = 24f;
+        if (ship == selectedShip) {
+            baseHeight = 36f;
+            spriteBatch.setColor(1f, 1f, 0.5f, 1f); // Slight yellow tint
+        } else if (ship == trackedShip) {
+            baseHeight = 32f;
+            spriteBatch.setColor(0.5f, 1f, 0.5f, 1f); // Slight green tint
+        } else {
+            spriteBatch.setColor(1f, 1f, 1f, 1f); // Normal
+        }
+
+        // Apply global size multiplier
+        final float SIZE_MULTIPLIER = 1.5f;
+        baseHeight *= SIZE_MULTIPLIER;
+
+        // Preserve texture aspect ratio
+        float texW = icon.getWidth();
+        float texH = icon.getHeight();
+        float aspect = texW / texH;
+
+        float height = baseHeight;
+        float width = baseHeight * aspect;
+
+        float halfWidth = width / 2f;
+        float halfHeight = height / 2f;
+
+        // Use AIS heading for icon rotation (always)
+        float drawRotation = ship.heading + ICON_ROTATION_ADJUST;
+
+        // Draw rotated icon (origin at center)
+        spriteBatch.draw(icon,
+            pos.x - halfWidth, pos.y - halfHeight, // position (bottom-left)
+            halfWidth, halfHeight,                 // origin (center)
+            width, height,                         // size (preserve aspect)
+            1f, 1f,                                 // scale
+            drawRotation,                          // rotation (degrees)
+            0, 0,                                   // src position
+            icon.getWidth(), icon.getHeight(),     // src size
+            false, false);                          // flip
+
+        // Reset color to white to avoid tint bleed
+        spriteBatch.setColor(1f, 1f, 1f, 1f);
+    }
+
+    private void drawShipDot(Ship ship, Ship selectedShip, Ship trackedShip, float zoom) {
         Vector2 pos = mapRenderer.latLonToPixel(ship.lat, ship.lon);
 
         // Determine color
@@ -69,11 +195,13 @@ public class ShipRenderer {
         } else if (ship == trackedShip) {
             color = SHIP_TRACKED;
             radius = 8f;
-        } else if (ship.navigationalStatus == 1 || ship.navigationalStatus == 5) {
-            color = SHIP_MOORED; // Anchored or moored
-            radius = 5f;
+        } else if (ship.shipType == null || "Unknown".equals(ship.shipType)) {
+            // Unknown ship type — render red
+            color = SHIP_DEFAULT; // red
+            radius = 6f;
         } else {
-            color = SHIP_DEFAULT;
+            // Known type (not selected/tracked) — render green
+            color = SHIP_TRACKED;
             radius = 5f;
         }
 
@@ -175,5 +303,17 @@ public class ShipRenderer {
         shapeRenderer.line(pos.x, pos.y, endX, endY);
 
         shapeRenderer.end();
+    }
+
+    public void dispose() {
+        if (spriteBatch != null) {
+            spriteBatch.dispose();
+        }
+        for (Texture texture : shipIcons.values()) {
+            if (texture != null) {
+                texture.dispose();
+            }
+        }
+        shipIcons.clear();
     }
 }

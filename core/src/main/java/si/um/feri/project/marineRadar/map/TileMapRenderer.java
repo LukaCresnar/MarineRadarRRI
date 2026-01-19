@@ -57,7 +57,7 @@ public class TileMapRenderer {
         camera.zoom = 1f;
         camera.update();
 
-        Gdx.app.log("TileMapRenderer", "Initialized - World size: " + worldSize);
+        // Gdx.app.log("TileMapRenderer", "Initialized - World size: " + worldSize);
     }
 
     public void render() {
@@ -140,11 +140,11 @@ public class TileMapRenderer {
         if (frameCounter % 180 == 0) {
             int windowWidth = (int) camera.viewportWidth;
             int windowHeight = (int) camera.viewportHeight;
-            Gdx.app.log("TileMapRenderer", String.format(
-                "Frame %d | Zoom: %d | Map: %dx%d | Window: %dx%d | Rendered: %d | Missing: %d | Cache: %d | Loading: %d | Failed: %d",
-                frameCounter, zoomLevel, worldSize, worldSize, windowWidth, windowHeight,
-                rendered, missing, tileCache.size(), loadingTiles.size(), failedTiles.size()
-            ));
+            // Gdx.app.log("TileMapRenderer", String.format(
+            //     "Frame %d | Zoom: %d | Map: %dx%d | Window: %dx%d | Rendered: %d | Missing: %d | Cache: %d | Loading: %d | Failed: %d",
+            //     frameCounter, zoomLevel, worldSize, worldSize, windowWidth, windowHeight,
+            //     rendered, missing, tileCache.size(), loadingTiles.size(), failedTiles.size()
+            // ));
         }
     }
 
@@ -169,7 +169,7 @@ public class TileMapRenderer {
         // Validate tile coordinates
         int maxCoord = (1 << zoom) - 1;
         if (x < 0 || x > maxCoord || y < 0 || y > maxCoord) {
-            Gdx.app.error("TileMapRenderer", "Invalid tile coordinates: zoom=" + zoom + " x=" + x + " y=" + y);
+            // Gdx.app.error("TileMapRenderer", "Invalid tile coordinates: zoom=" + zoom + " x=" + x + " y=" + y);
             loadingTiles.remove(key);
             failedTiles.add(key);
             return;
@@ -314,7 +314,7 @@ public class TileMapRenderer {
     }
 
     private void changeZoomLevel(int newZoomLevel) {
-        Gdx.app.log("TileMapRenderer", "Zoom level change: " + zoomLevel + " -> " + newZoomLevel);
+        // Gdx.app.log("TileMapRenderer", "Zoom level change: " + zoomLevel + " -> " + newZoomLevel);
 
         // Calculate position ratio in current world
         int oldWorldSize = TILE_SIZE * (1 << zoomLevel);

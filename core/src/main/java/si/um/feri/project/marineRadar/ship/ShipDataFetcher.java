@@ -186,6 +186,8 @@ public class ShipDataFetcher {
                     ship = new Ship(fMmsi, fLat, fLon);
                     ship.name = fShipName;
                     enhanceShipData(ship);
+                    // Initialize movement/state from first position report
+                    ship.update(fLat, fLon, fSpeed, fCourse, fHeading, fNavStatus);
                     ships.add(ship);
                     shipMap.put(fMmsi, ship);
                 } else if (ship != null) {
