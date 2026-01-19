@@ -67,6 +67,7 @@ public class MarineRadar extends ApplicationAdapter {
     private Vector2 cameraTarget = new Vector2();
     private float targetZoom = 1f;
     private float animationProgress = 0f;
+    private long lastSimUpdate = 0; // Timestamp of last simulation update (ms)
 
     @Override
     public void create() {
@@ -264,13 +265,18 @@ public class MarineRadar extends ApplicationAdapter {
         updateCameraAnimation(delta);
         updateUI();
         
-        // Interpolate ship positions every 2 seconds for smooth movement
-        for (Ship ship : ships) {
-            ship.interpolatePosition();
-        }
 
         if ((long) (Gdx.graphics.getFrameId()) % 30 == 0) {
             shipSearchPanel.refreshShips();
+        }
+
+        // --- SIMULATION: move ships every 2 seconds using course and speed ---
+        long now = System.currentTimeMillis();
+        if (now - lastSimUpdate >= Ship.UPDATE_INTERVAL_MS) {
+            for (Ship ship : ships) {
+                ship.simulateMovement(Ship.UPDATE_INTERVAL_MS);
+            }
+            lastSimUpdate = now;
         }
 
         // --- DEBUG: Log zoom level and camera zoom ---

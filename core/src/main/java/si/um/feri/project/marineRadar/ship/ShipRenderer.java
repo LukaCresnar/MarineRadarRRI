@@ -23,7 +23,7 @@ public class ShipRenderer {
     // Ship icons
     private Map<String, Texture> shipIcons = new HashMap<>();
     private static final int MIN_ZOOM_FOR_ICONS = 8; // Show icons at zoom level 8+
-    private static final float ICON_ROTATION_ADJUST = 180f; // Add 180° so icon faces direction correctly
+    private static final float ICON_ROTATION_ADJUST = 0f; // Adjustment in degrees; use 0 and tweak if needed
 
     // Colors
     private static final Color SHIP_DEFAULT = new Color(1f, 0f, 0f, 1f);      // Red
@@ -164,8 +164,23 @@ public class ShipRenderer {
         float halfWidth = width / 2f;
         float halfHeight = height / 2f;
 
-        // Use AIS heading for icon rotation (always)
-        float drawRotation = ship.heading + ICON_ROTATION_ADJUST;
+        // Compute icon rotation based on projected route (same as drawRoute)
+        // Project 2 hours ahead (same heuristic) and compute bearing to that point
+        float drawRotation;
+        if (ship.speed > 0.1f) {
+            float distance = ship.speed * 2; // same 2-hour projection
+            float courseRad = ship.course * MathUtils.degreesToRadians;
+            double latOffset = Math.cos(courseRad) * distance / 60.0;
+            double lonOffset = Math.sin(courseRad) * distance / 60.0;
+            double futureLat = ship.lat + latOffset;
+            double futureLon = ship.lon + lonOffset;
+
+            float bearing = computeBearing(ship.lat, ship.lon, futureLat, futureLon);
+            drawRotation = bearing - 90f + ICON_ROTATION_ADJUST;
+        } else {
+            // Fallback to course when stationary or no speed
+            drawRotation = ship.course - 90f + ICON_ROTATION_ADJUST;
+        }
 
         // Draw rotated icon (origin at center)
         spriteBatch.draw(icon,
@@ -228,6 +243,22 @@ public class ShipRenderer {
         float y3 = pos.y + MathUtils.sin(angleRad - 2.4f) * (size * 0.5f);
 
         shapeRenderer.triangle(x1, y1, x2, y2, x3, y3);
+    }
+
+    /**
+     * Compute compass bearing (degrees, 0 = North) from (lat1,lon1) to (lat2,lon2).
+     */
+    private float computeBearing(double lat1, double lon1, double lat2, double lon2) {
+        double deltaLon = lon2 - lon1;
+        double deltaLat = lat2 - lat1;
+
+        // If no significant movement, return 0
+        if (Math.abs(deltaLat) < 1e-9 && Math.abs(deltaLon) < 1e-9) return 0f;
+
+        double angleRad = Math.atan2(deltaLon, deltaLat);
+        float angleDeg = (float) Math.toDegrees(angleRad);
+        if (angleDeg < 0) angleDeg += 360f;
+        return angleDeg;
     }
 
     private void drawRoute(Ship ship, float zoom) {

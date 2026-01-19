@@ -120,61 +120,54 @@ public class Ship {
         routeInfo.updateDestination(lat, lon, course, speed);
     }
 
-    /**
-     * Interpolate ship position based on speed and course.
-     * Call this every frame or every 2 seconds to simulate movement between API updates.
-     */
-    public void interpolatePosition() {
-        if (speed < 0.5f) return; // Don't interpolate if not moving
-        
-        long currentTime = System.currentTimeMillis();
-        long timeSinceLastUpdate = currentTime - lastLocationUpdateTime;
-        
-        if (timeSinceLastUpdate >= UPDATE_INTERVAL_MS) {
-            // Calculate distance traveled in nautical miles
-            // Speed is in knots (nautical miles per hour)
-            double hoursElapsed = UPDATE_INTERVAL_MS / 3600000.0;
-            double distanceNm = speed * hoursElapsed;
-            
-            // Convert nautical miles to degrees (1 nm ≈ 1/60 degree at equator)
-            double distanceDeg = distanceNm / 60.0;
-            
-            // Calculate new position based on course
-            double courseRad = Math.toRadians(course);
-            double newLat = lat + distanceDeg * Math.cos(courseRad);
-            double newLon = lon + distanceDeg * Math.sin(courseRad) / Math.cos(Math.toRadians(lat));
-            
-            // Store previous position for rotation calculation
-            double prevLat = lat;
-            double prevLon = lon;
-            
-            // Update position
-            this.lat = newLat;
-            this.lon = newLon;
-            
-            // Calculate rotation based on movement
-            this.rotation = calculateRotation(prevLat, prevLon, newLat, newLon);
-            
-            // Add to location history
-            locationHistory.add(new double[]{newLat, newLon});
-            while (locationHistory.size() > MAX_LOCATION_HISTORY) {
-                locationHistory.remove(0);
-            }
-            
-            // Debug log for selected ship
-            if (isSelected) {
-                Gdx.app.log("Ship", name + " [" + mmsi + "] - INTERPOLATED - History: " + locationHistory.size() + 
-                    " locations, Rotation: " + String.format("%.1f", rotation) + "°" +
-                    ", Pos: (" + String.format("%.4f", lat) + ", " + String.format("%.4f", lon) + ")" +
-                    ", Speed: " + String.format("%.1f", speed) + " kn");
-            }
-            
-            lastLocationUpdateTime = currentTime;
-            
-            // Update route
-            routeInfo.updateDestination(lat, lon, course, speed);
+    // Simulated movement: advance position by deltaMs based on speed (knots) and course (degrees)
+    // This is used to visually move ships between PositionReports when requested by the renderer.
+    public void simulateMovement(long deltaMs) {
+        if (speed <= 0.0f) return; // stationary
+
+        double hours = deltaMs / 3600000.0; // ms -> hours
+        double distanceNm = speed * hours; // nautical miles
+        if (distanceNm <= 0.0) return;
+
+        // Convert nautical miles to degrees (approx): 1 nm ≈ 1/60 degree latitude
+        double distanceDegLat = distanceNm / 60.0;
+
+        double courseRad = Math.toRadians(course);
+
+        // Compute new position taking latitude into account for longitude scaling
+        double newLat = lat + distanceDegLat * Math.cos(courseRad);
+        double newLon = lon + (distanceDegLat * Math.sin(courseRad)) / Math.cos(Math.toRadians(lat));
+
+        // Keep previous for rotation calculation
+        double prevLat = lat;
+        double prevLon = lon;
+
+        // Update position and timestamp
+        this.lat = newLat;
+        this.lon = newLon;
+        this.timestamp = System.currentTimeMillis();
+
+        // Update rotation based on movement
+        this.rotation = calculateRotation(prevLat, prevLon, newLat, newLon);
+
+        // Add to history and clamp size
+        locationHistory.add(new double[]{newLat, newLon});
+        while (locationHistory.size() > MAX_LOCATION_HISTORY) {
+            locationHistory.remove(0);
+        }
+
+        // Update route destination based on current course/speed
+        routeInfo.updateDestination(lat, lon, course, speed);
+
+        // Debug log for selected ship
+        if (isSelected) {
+            Gdx.app.log("Ship", name + " [" + mmsi + "] - SIMULATED - History: " + locationHistory.size() +
+                " locations, Rotation: " + String.format("%.1f", rotation) + "°" +
+                ", Pos: (" + String.format("%.4f", lat) + ", " + String.format("%.4f", lon) + ")" +
+                ", Speed: " + String.format("%.1f", speed) + " kn, Course: " + String.format("%.1f", course));
         }
     }
+
 
     /**
      * Calculate rotation angle (in degrees) from previous location to current location.
