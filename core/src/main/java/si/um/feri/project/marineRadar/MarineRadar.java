@@ -17,6 +17,7 @@ import si.um.feri.project.marineRadar.map.TileMapRenderer;
 import si.um.feri.project.marineRadar.ship.Ship;
 import si.um.feri.project.marineRadar.ship.Ship3DRenderer;
 import si.um.feri.project.marineRadar.ship.ShipDataFetcher;
+import si.um.feri.project.marineRadar.ship.ShipDetailsDialog;
 import si.um.feri.project.marineRadar.ship.ShipSearchPanel;
 import si.um.feri.project.marineRadar.ship.ShipRenderer;
 
@@ -55,6 +56,16 @@ public class MarineRadar extends ApplicationAdapter {
     private Dialog settingsDialog;
     private Slider maxShipsSlider;
     private Label maxShipsValueLabel;
+    
+    private ShipDetailsDialog currentShipDialog = null; // Track currently open ship dialog
+    
+    // 3D mode UI elements
+    private Table mode3DUI;
+    private Label ship3DInfoLabel;
+    private ShipDetailsDialog ship3DInfoDialog = null; // Ship info in 3D mode (compact, no buttons)
+    
+    // Main UI table (to hide in 3D mode)
+    private Table mainUITable;
 
     private InputMultiplexer inputMultiplexer;
     private MapInputProcessor mapInputProcessor;
@@ -68,6 +79,14 @@ public class MarineRadar extends ApplicationAdapter {
     private float targetZoom = 1f;
     private float animationProgress = 0f;
     private long lastSimUpdate = 0; // Timestamp of last simulation update (ms)
+    
+    private boolean trackingShip = false; // Continuous tracking mode
+    private Ship trackedShip = null; // Ship being tracked
+    
+    private boolean animatingZoomOut = false; // Zooming out to center
+    private int startMapZoomLevel = 3; // Starting map zoom level for animation
+    private int targetMapZoomLevel = 3; // Target map zoom level for animation
+    private float lastZoomTransitionCheck = 0f; // For gradual zoom transitions
 
     @Override
     public void create() {
@@ -93,8 +112,9 @@ public class MarineRadar extends ApplicationAdapter {
 
         mapInputProcessor = new MapInputProcessor();
         inputMultiplexer = new InputMultiplexer();
-        inputMultiplexer.addProcessor(mapInputProcessor);
+        // UI stage must be first to receive button clicks before other processors
         inputMultiplexer.addProcessor(uiStage);
+        inputMultiplexer.addProcessor(mapInputProcessor);
         Gdx.input.setInputProcessor(inputMultiplexer);
 
         Gdx.app.log("MarineRadar", "Initialization complete");
@@ -104,10 +124,10 @@ public class MarineRadar extends ApplicationAdapter {
         uiStage = new Stage(new ScreenViewport());
         skin = new Skin(Gdx.files.internal("uiskin.json"));
 
-        Table mainTable = new Table();
-        mainTable.setFillParent(true);
-        mainTable.top().left();
-        mainTable.pad(10);
+        mainUITable = new Table();
+        mainUITable.setFillParent(true);
+        mainUITable.top().left();
+        mainUITable.pad(10);
 
         Table infoPanel = new Table(skin);
         infoPanel.setBackground("default-rect");
@@ -123,7 +143,7 @@ public class MarineRadar extends ApplicationAdapter {
         infoPanel.add(shipCountLabel).left().row();
         infoPanel.add(connectionLabel).left().row();
 
-        mainTable.add(infoPanel).left().row();
+        mainUITable.add(infoPanel).left().row();
 
         TextButton settingsButton = new TextButton("Settings", skin);
         settingsButton.addListener(new ClickListener() {
@@ -133,7 +153,27 @@ public class MarineRadar extends ApplicationAdapter {
             }
         });
 
-        mainTable.add(settingsButton).left().padTop(10).row();
+        mainUITable.add(settingsButton).left().padTop(10).row();
+        
+        TextButton centerButton = new TextButton("Center Map", skin);
+        centerButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                centerCamera();
+            }
+        });
+        
+        mainUITable.add(centerButton).left().padTop(10).row();
+        
+        TextButton findShipButton = new TextButton("Find Ship", skin);
+        findShipButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                shipSearchPanel.setVisible(!shipSearchPanel.isVisible());
+            }
+        });
+        
+        mainUITable.add(findShipButton).left().padTop(10).row();
 
         shipSearchPanel = new ShipSearchPanel(ships, skin, new ShipSearchPanel.ShipSelectionListener() {
             @Override
@@ -144,13 +184,50 @@ public class MarineRadar extends ApplicationAdapter {
             @Override
             public void onShipDoubleClicked(Ship ship) {
                 selectedSearchShip = ship;
-                centerOnSelectedShip();
+                focusOnShip(ship);
+            }
+            
+            @Override
+            public void onClose() {
+                shipSearchPanel.setVisible(false);
             }
         });
         shipSearchPanel.setVisible(false);
-        mainTable.add(shipSearchPanel).left().padTop(10).row();
+        mainUITable.add(shipSearchPanel).left().padTop(10).row();
 
-        uiStage.addActor(mainTable);
+        uiStage.addActor(mainUITable);
+        
+        // Create 3D mode UI (separate table that's visible only in 3D mode)
+        mode3DUI = new Table();
+        mode3DUI.setFillParent(true);
+        mode3DUI.top().left();
+        mode3DUI.pad(10);
+        
+        Table info3DPanel = new Table(skin);
+        info3DPanel.setBackground("default-rect");
+        info3DPanel.pad(10);
+        
+        ship3DInfoLabel = new Label("3D View Mode", skin);
+        ship3DInfoLabel.setColor(0.2f, 0.8f, 1f, 1f);
+        info3DPanel.add(ship3DInfoLabel).left().row();
+        
+        Label controls3DLabel = new Label("Controls:\nA/D or Arrows: Rotate camera\nW/S: Zoom in/out\nQ/E: Camera height\n1-4: Camera modes\nESC: Exit 3D view", skin);
+        controls3DLabel.setFontScale(0.9f);
+        info3DPanel.add(controls3DLabel).left().padTop(10).row();
+        
+        mode3DUI.add(info3DPanel).left().row();
+        
+        TextButton exit3DButton = new TextButton("Exit 3D View", skin);
+        exit3DButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                exit3DMode();
+            }
+        });
+        mode3DUI.add(exit3DButton).left().padTop(10).row();
+        
+        mode3DUI.setVisible(false);
+        uiStage.addActor(mode3DUI);
 
         createSettingsDialog();
     }
@@ -163,7 +240,7 @@ public class MarineRadar extends ApplicationAdapter {
 
         // Max Ships Slider
         Label maxShipsLabel = new Label("Max Ships: ", skin);
-        maxShipsSlider = new Slider(100, 2000, 50, false, skin);
+        maxShipsSlider = new Slider(0, 2000, 50, false, skin);
         maxShipsSlider.setValue(1000);
         maxShipsValueLabel = new Label("1000", skin);
 
@@ -172,6 +249,22 @@ public class MarineRadar extends ApplicationAdapter {
                 int value = (int) maxShipsSlider.getValue();
                 maxShipsValueLabel.setText(String.valueOf(value));
                 shipDataFetcher.setMaxShips(value);
+                
+                // Remove excess ships if slider value is below current ship count
+                while (ships.size() > value) {
+                    int randomIndex = (int) (Math.random() * ships.size());
+                    Ship removedShip = ships.remove(randomIndex);
+                    
+                    // Clear selection if we removed the selected or tracked ship
+                    if (selectedShip == removedShip) {
+                        selectedShip = null;
+                    }
+                    if (trackedShip == removedShip) {
+                        trackedShip = null;
+                        trackingShip = false;
+                    }
+                }
+                
                 return true;
             }
             return false;
@@ -203,23 +296,6 @@ public class MarineRadar extends ApplicationAdapter {
             }
         });
 
-        TextButton centerButton = new TextButton("Center Map", skin);
-        centerButton.addListener(new ClickListener() {
-            @Override
-            public void clicked(InputEvent event, float x, float y) {
-                settingsDialog.hide();
-                centerCamera();
-            }
-        });
-
-        TextButton toggleSearchButton = new TextButton("Find Ship", skin);
-        toggleSearchButton.addListener(new ClickListener() {
-            @Override
-            public void clicked(InputEvent event, float x, float y) {
-                shipSearchPanel.setVisible(!shipSearchPanel.isVisible());
-            }
-        });
-
         TextButton toggleCloudsButton = new TextButton("Toggle Clouds", skin);
         toggleCloudsButton.addListener(new ClickListener() {
             @Override
@@ -239,8 +315,6 @@ public class MarineRadar extends ApplicationAdapter {
         Table buttonTable = new Table();
         buttonTable.add(helpButton).pad(5);
         buttonTable.add(radarToggle).pad(5).row();
-        buttonTable.add(centerButton).pad(5);
-        buttonTable.add(toggleSearchButton).pad(5).row();
         buttonTable.add(toggleCloudsButton).pad(5);
         buttonTable.add(toggleRoutesButton).pad(5);
 
@@ -250,6 +324,9 @@ public class MarineRadar extends ApplicationAdapter {
 
         TextButton closeButton = new TextButton("Close", skin);
         settingsDialog.button(closeButton);
+        
+        // Make dialog modal to block interaction with elements behind it
+        settingsDialog.setModal(true);
     }
 
     private void showSettingsDialog() {
@@ -260,16 +337,6 @@ public class MarineRadar extends ApplicationAdapter {
     public void render() {
         float delta = Gdx.graphics.getDeltaTime();
 
-        handleInput();
-        updateRadar(delta);
-        updateCameraAnimation(delta);
-        updateUI();
-        
-
-        if ((long) (Gdx.graphics.getFrameId()) % 30 == 0) {
-            shipSearchPanel.refreshShips();
-        }
-
         // --- SIMULATION: move ships every 2 seconds using course and speed ---
         long now = System.currentTimeMillis();
         if (now - lastSimUpdate >= Ship.UPDATE_INTERVAL_MS) {
@@ -277,6 +344,49 @@ public class MarineRadar extends ApplicationAdapter {
                 ship.simulateMovement(Ship.UPDATE_INTERVAL_MS);
             }
             lastSimUpdate = now;
+        }
+
+        // Handle 3D mode rendering (full screen 3D scene)
+        if (show3DMode && ship3DRenderer.isActive()) {
+            // Show 3D UI, hide 2D UI
+            mode3DUI.setVisible(true);
+            
+            // Update 3D info label
+            Ship currentShip = ship3DRenderer.getCurrentShip();
+            if (currentShip != null) {
+                ship3DInfoLabel.setText(String.format("3D View: %s\nSpeed: %.1f kn | Heading: %.0f°",
+                    currentShip.name, currentShip.speed, currentShip.heading));
+            }
+            
+            // 3D mode - render ocean scene with ship
+            Gdx.gl.glClearColor(0.4f, 0.6f, 0.9f, 1f); // Sky blue
+            Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
+            
+            // Check for escape key to exit 3D mode
+            if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+                exit3DMode();
+            }
+            
+            // Render 3D scene
+            ship3DRenderer.render(delta);
+            
+            // Draw UI overlay (including exit button)
+            uiStage.act(delta);
+            uiStage.draw();
+            return;
+        }
+        
+        // Hide 3D UI when not in 3D mode
+        mode3DUI.setVisible(false);
+
+        // Regular 2D map mode
+        handleInput();
+        updateRadar(delta);
+        updateCameraAnimation(delta);
+        updateUI();
+
+        if ((long) (Gdx.graphics.getFrameId()) % 30 == 0) {
+            shipSearchPanel.refreshShips();
         }
 
         // --- DEBUG: Log zoom level and camera zoom ---
@@ -291,18 +401,10 @@ public class MarineRadar extends ApplicationAdapter {
         camera.update();
         map.render();
 
-        if (!show3DMode) {
-            // Use ShipRenderer (icons/dots) instead of manual rendering
-            shipRenderer.render(camera, ships, selectedShip, selectedShip);
-        }
+        // Render ships as 2D icons
+        shipRenderer.render(camera, ships, selectedShip, trackedShip);
 
-        if (show3DMode && ship3DRenderer.isActive()) {
-            Gdx.gl.glEnable(GL20.GL_DEPTH_TEST);
-            ship3DRenderer.render(delta);
-            Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
-        }
-
-        if (showRadarSweep && selectedShip != null && !show3DMode) {
+        if (showRadarSweep && selectedShip != null) {
             renderRadarSweep();
         }
 
@@ -311,18 +413,35 @@ public class MarineRadar extends ApplicationAdapter {
     }
 
     private void handleInput() {
-        if (Gdx.input.isKeyPressed(Input.Keys.LEFT))  camera.position.x -= moveSpeed * camera.zoom;
-        if (Gdx.input.isKeyPressed(Input.Keys.RIGHT)) camera.position.x += moveSpeed * camera.zoom;
-        if (Gdx.input.isKeyPressed(Input.Keys.UP))    camera.position.y += moveSpeed * camera.zoom;
-        if (Gdx.input.isKeyPressed(Input.Keys.DOWN))  camera.position.y -= moveSpeed * camera.zoom;
+        // Manual input disables tracking mode
+        boolean manualInput = false;
+        
+        if (Gdx.input.isKeyPressed(Input.Keys.LEFT)) {
+            camera.position.x -= moveSpeed * camera.zoom;
+            manualInput = true;
+        }
+        if (Gdx.input.isKeyPressed(Input.Keys.RIGHT)) {
+            camera.position.x += moveSpeed * camera.zoom;
+            manualInput = true;
+        }
+        if (Gdx.input.isKeyPressed(Input.Keys.UP)) {
+            camera.position.y += moveSpeed * camera.zoom;
+            manualInput = true;
+        }
+        if (Gdx.input.isKeyPressed(Input.Keys.DOWN)) {
+            camera.position.y -= moveSpeed * camera.zoom;
+            manualInput = true;
+        }
 
         if (Gdx.input.isKeyPressed(Input.Keys.A)) {
             camera.zoom *= (1 + zoomSpeed);
             camera.zoom = MathUtils.clamp(camera.zoom, 0.3f, 5f);
+            manualInput = true;
         }
         if (Gdx.input.isKeyPressed(Input.Keys.S)) {
             camera.zoom *= (1 - zoomSpeed);
             camera.zoom = MathUtils.clamp(camera.zoom, 0.3f, 5f);
+            manualInput = true;
         }
 
         if (Gdx.input.isButtonPressed(Input.Buttons.LEFT) && uiStage.hit(Gdx.input.getX(), Gdx.graphics.getHeight() - Gdx.input.getY(), true) == null) {
@@ -339,9 +458,17 @@ public class MarineRadar extends ApplicationAdapter {
 
                 lastMouseX = Gdx.input.getX();
                 lastMouseY = Gdx.input.getY();
+                manualInput = true;
             }
         } else {
             dragging = false;
+        }
+        
+        // Disable tracking if user manually moves camera
+        if (manualInput) {
+            trackingShip = false;
+            trackedShip = null;
+            animatingZoomOut = false;
         }
 
         clampCamera();
@@ -364,25 +491,121 @@ public class MarineRadar extends ApplicationAdapter {
     }
 
     private void updateCameraAnimation(float delta) {
+        // Handle zoom out animation
+        if (animatingZoomOut) {
+            animationProgress += delta * 0.6f; // Smooth gradual zoom out
+            
+            if (animationProgress >= 1f) {
+                animatingZoomOut = false;
+                animationProgress = 1f;
+                
+                // Ensure final zoom level and position
+                if (map.getZoomLevel() != targetMapZoomLevel) {
+                    map.setZoomLevel(targetMapZoomLevel);
+                }
+                int worldSize = map.getWorldSize();
+                camera.position.set(worldSize / 2f, worldSize / 2f, 0);
+                camera.zoom = 1f;
+                camera.update();
+            } else {
+                // Smooth exponential easing
+                float t = 1f - (float) Math.pow(1f - animationProgress, 3);
+                
+                // Gradually change map zoom level based on progress
+                int currentMapZoom = map.getZoomLevel();
+                float zoomProgress = MathUtils.lerp(startMapZoomLevel, targetMapZoomLevel, t);
+                int desiredMapZoom = Math.round(zoomProgress);
+                
+                if (desiredMapZoom != currentMapZoom && desiredMapZoom >= targetMapZoomLevel && desiredMapZoom <= startMapZoomLevel) {
+                    map.setZoomLevel(desiredMapZoom);
+                    // Recalculate target position for new zoom level
+                    int worldSize = map.getWorldSize();
+                    cameraTarget.set(worldSize / 2f, worldSize / 2f);
+                }
+                
+                // Smooth camera movement - higher lerp for fluid motion
+                camera.position.x = MathUtils.lerp(camera.position.x, cameraTarget.x, delta * 3f);
+                camera.position.y = MathUtils.lerp(camera.position.y, cameraTarget.y, delta * 3f);
+                
+                // Smooth continuous zoom using camera zoom for in-between values
+                float targetCameraZoom = (float) Math.pow(2, currentMapZoom - zoomProgress);
+                camera.zoom = MathUtils.lerp(camera.zoom, targetCameraZoom, delta * 5f);
+            }
+            return;
+        }
+        
+        // Continuous tracking mode - keep camera centered on ship
+        if (trackingShip && trackedShip != null) {
+            // Smoothly zoom in using both map zoom and camera zoom
+            int currentMapZoom = map.getZoomLevel();
+            if (currentMapZoom < targetMapZoomLevel) {
+                lastZoomTransitionCheck += delta;
+                if (lastZoomTransitionCheck >= 0.6f) {
+                    lastZoomTransitionCheck = 0f;
+                    map.setZoomLevel(currentMapZoom + 1);
+                }
+            }
+            
+            Vector2 shipPos = map.latLonToPixel(trackedShip.lat, trackedShip.lon);
+            // Smoothly follow the ship
+            camera.position.x = MathUtils.lerp(camera.position.x, shipPos.x, delta * 3f);
+            camera.position.y = MathUtils.lerp(camera.position.y, shipPos.y, delta * 3f);
+            
+            // Smooth zoom transition
+            float targetCameraZoom = currentMapZoom < targetMapZoomLevel ? 0.5f : 1f;
+            camera.zoom = MathUtils.lerp(camera.zoom, targetCameraZoom, delta * 4f);
+            clampCamera();
+            return;
+        }
+        
         if (!animatingToShip) return;
 
-        animationProgress += delta * 2f;
-
+        animationProgress += delta * 0.8f; // Smooth animation speed
+        
         if (animationProgress >= 1f) {
             animatingToShip = false;
             animationProgress = 1f;
+            
+            // Ensure final zoom level
+            if (map.getZoomLevel() != targetMapZoomLevel) {
+                map.setZoomLevel(targetMapZoomLevel);
+                if (selectedShip != null) {
+                    Vector2 pos = map.latLonToPixel(selectedShip.lat, selectedShip.lon);
+                    camera.position.set(pos.x, pos.y, 0);
+                }
+            }
+            camera.zoom = 1f;
 
             if (selectedShip != null) {
                 show3DMode = true;
                 ship3DRenderer.activate(selectedShip);
             }
+        } else {
+            // Smooth exponential easing for zoom in
+            float t = (float) Math.pow(animationProgress, 2);
+            
+            // Gradually change map zoom level based on progress
+            int currentMapZoom = map.getZoomLevel();
+            float zoomProgress = MathUtils.lerp(startMapZoomLevel, targetMapZoomLevel, t);
+            int desiredMapZoom = Math.round(zoomProgress);
+            
+            if (desiredMapZoom != currentMapZoom && desiredMapZoom >= startMapZoomLevel && desiredMapZoom <= targetMapZoomLevel) {
+                map.setZoomLevel(desiredMapZoom);
+                // Recalculate target position for new zoom level
+                if (selectedShip != null) {
+                    Vector2 pos = map.latLonToPixel(selectedShip.lat, selectedShip.lon);
+                    cameraTarget.set(pos);
+                }
+            }
+            
+            // Smooth camera movement
+            camera.position.x = MathUtils.lerp(camera.position.x, cameraTarget.x, delta * 4f);
+            camera.position.y = MathUtils.lerp(camera.position.y, cameraTarget.y, delta * 4f);
+            
+            // Smooth continuous zoom - use camera zoom for decimal precision
+            float targetCameraZoom = (float) Math.pow(2, currentMapZoom - zoomProgress);
+            camera.zoom = MathUtils.lerp(camera.zoom, targetCameraZoom, delta * 6f);
         }
-
-        float t = animationProgress * animationProgress * (3f - 2f * animationProgress);
-
-        camera.position.x = MathUtils.lerp(camera.position.x, cameraTarget.x, t);
-        camera.position.y = MathUtils.lerp(camera.position.y, cameraTarget.y, t);
-        camera.zoom = MathUtils.lerp(camera.zoom, targetZoom, t);
     }
 
     private void updateUI() {
@@ -514,6 +737,9 @@ public class MarineRadar extends ApplicationAdapter {
         camera.position.set(worldSize / 2f, worldSize / 2f, 0);
         camera.zoom = 1f;
         animatingToShip = false;
+        animatingZoomOut = false;
+        trackingShip = false;
+        trackedShip = null;
         show3DMode = false;
         ship3DRenderer.deactivate();
     }
@@ -549,78 +775,144 @@ public class MarineRadar extends ApplicationAdapter {
     }
 
     private void showShipDetails(Ship ship) {
-        Dialog dialog = new Dialog("Vessel Information", skin) {
+        // Close any existing ship dialog to prevent stacking
+        if (currentShipDialog != null) {
+            currentShipDialog.hide();
+            currentShipDialog.remove();
+            currentShipDialog = null;
+        }
+        
+        ShipDetailsDialog dialog = new ShipDetailsDialog(ship, skin, new ShipDetailsDialog.ShipSelectionListener() {
             @Override
-            protected void result(Object object) {
-                if (object != null && object.equals("track")) {
-                    selectedShip = ship;
-                } else if (object != null && object.equals("focus")) {
-                    focusOnShip(ship);
-                }
+            public void onTrack(Ship ship) {
+                trackShip(ship);
             }
-        };
 
-        StringBuilder details = new StringBuilder();
-
-        details.append("=== VESSEL IDENTITY ===\n");
-        details.append("Name: ").append(ship.name).append("\n");
-        details.append("MMSI: ").append(ship.mmsi).append("\n");
-        if (!ship.callSign.isEmpty()) {
-            details.append("Call Sign: ").append(ship.callSign).append("\n");
-        }
-        if (ship.imoNumber > 0) {
-            details.append("IMO: ").append(ship.imoNumber).append("\n");
-        }
-        details.append("Type: ").append(ship.shipType).append("\n");
-
-        details.append("\n=== ROUTE ===\n");
-        if (ship.routeInfo != null) {
-            details.append("From: ").append(ship.routeInfo.startLocation).append("\n");
-            details.append("Heading To: ").append(ship.routeInfo.destLocation).append("\n");
-        }
-
-        details.append("\n=== CURRENT STATUS ===\n");
-        details.append(String.format("Position: %.4f, %.4f\n", ship.lat, ship.lon));
-        details.append(String.format("Speed: %.1f knots\n", ship.speed));
-        details.append(String.format("Course: %.1f°\n", ship.course));
-        details.append(String.format("Heading: %.1f°\n", ship.heading));
-        details.append("Status: ").append(ship.getNavigationalStatusText()).append("\n");
-
-        if (ship.shipLength > 0 || ship.draught > 0) {
-            details.append("\n=== DIMENSIONS ===\n");
-            if (ship.shipLength > 0 && ship.shipWidth > 0) {
-                details.append("Size: ").append(ship.getFormattedSize()).append("\n");
+            @Override
+            public void onFocusShip(Ship ship) {
+                focusOnShip(ship);
             }
-            if (ship.draught > 0) {
-                details.append(String.format("Draught: %.1f m\n", ship.draught));
-            }
-        }
-
-        if (!ship.destination.equals("Unknown")) {
-            details.append("\n=== VOYAGE ===\n");
-            details.append("Destination: ").append(ship.destination).append("\n");
-            if (ship.eta != null && ship.eta.isValid()) {
-                details.append("ETA: ").append(ship.eta.toString()).append("\n");
-            }
-        }
-
-        dialog.text(details.toString());
-        dialog.button("Track", "track");
-        dialog.button("Focus & 3D", "focus");
-        dialog.button("Close", "close");
+        });
+        
+        currentShipDialog = dialog;
         dialog.show(uiStage);
+        
+        // Position dialog to the right side of the screen
+        float dialogX = Gdx.graphics.getWidth() - dialog.getWidth() - 20;
+        float dialogY = (Gdx.graphics.getHeight() - dialog.getHeight()) / 2;
+        dialog.setPosition(dialogX, dialogY);
     }
 
+    private void trackShip(Ship ship) {
+        selectedShip = ship;
+        trackedShip = ship;
+        trackingShip = true;
+        animatingToShip = false;
+        animatingZoomOut = false;
+        show3DMode = false;
+        ship3DRenderer.deactivate();
+        
+        // Set target zoom level - animation will gradually transition
+        startMapZoomLevel = map.getZoomLevel();
+        targetMapZoomLevel = 8;
+        lastZoomTransitionCheck = 0f;
+        
+        Gdx.app.log("MarineRadar", "Tracking ship: " + ship.name + " - will zoom to level 8");
+    }
+    
     private void focusOnShip(Ship ship) {
         selectedShip = ship;
-        Vector2 pos = map.latLonToPixel(ship.lat, ship.lon);
+        trackedShip = ship;
+        trackingShip = true;
+        animatingZoomOut = false;
+        animatingToShip = false;
+        
+        // Hide main UI and show 3D UI
+        mainUITable.setVisible(false);
+        mode3DUI.setVisible(true);
+        
+        // Close any existing dialogs
+        if (currentShipDialog != null) {
+            currentShipDialog.hide();
+            currentShipDialog.remove();
+            currentShipDialog = null;
+        }
+        
+        // Show compact ship info dialog for 3D mode
+        if (ship3DInfoDialog != null) {
+            ship3DInfoDialog.hide();
+            ship3DInfoDialog.remove();
+        }
+        ship3DInfoDialog = new ShipDetailsDialog(ship, skin, true); // compact mode
+        ship3DInfoDialog.show(uiStage);
+        // Position in top-right corner
+        ship3DInfoDialog.setPosition(
+            Gdx.graphics.getWidth() - ship3DInfoDialog.getWidth() - 20,
+            Gdx.graphics.getHeight() - ship3DInfoDialog.getHeight() - 20
+        );
+        
+        // Activate 3D mode immediately
+        show3DMode = true;
+        ship3DRenderer.activate(ship);
 
-        cameraTarget.set(pos);
-        targetZoom = 0.15f;
+        Gdx.app.log("MarineRadar", "Entering 3D view for ship: " + ship.name);
+    }
+    
+    private void exit3DMode() {
+        show3DMode = false;
+        ship3DRenderer.deactivate();
+        
+        // Show main UI and hide 3D UI
+        mainUITable.setVisible(true);
+        mode3DUI.setVisible(false);
+        
+        // Hide 3D mode ship info dialog
+        if (ship3DInfoDialog != null) {
+            ship3DInfoDialog.hide();
+            ship3DInfoDialog.remove();
+            ship3DInfoDialog = null;
+        }
+        
+        // If we were tracking a ship, continue tracking in 2D
+        if (trackedShip != null) {
+            // Center camera on tracked ship
+            Vector2 pos = map.latLonToPixel(trackedShip.lat, trackedShip.lon);
+            camera.position.set(pos.x, pos.y, 0);
+            
+            // Set appropriate zoom level
+            startMapZoomLevel = map.getZoomLevel();
+            targetMapZoomLevel = 8;
+            lastZoomTransitionCheck = 0f;
+            trackingShip = true;
+        }
+        
+        Gdx.app.log("MarineRadar", "Exiting 3D view");
+    }
+    
+    private void zoomOutToCenter() {
+        // Stop tracking and 3D mode
+        trackingShip = false;
+        trackedShip = null;
+        selectedShip = null;
+        show3DMode = false;
+        ship3DRenderer.deactivate();
+        
+        // Start zoom out animation
+        animatingToShip = false;
+        animatingZoomOut = true;
         animationProgress = 0f;
-        animatingToShip = true;
-
-        Gdx.app.log("MarineRadar", "Focusing on ship: " + ship.name);
+        lastZoomTransitionCheck = 0f;
+        
+        // Set zoom transition parameters
+        startMapZoomLevel = map.getZoomLevel();
+        targetMapZoomLevel = 3;
+        
+        // Set target to center of current map (will update as zoom changes)
+        int currentWorldSize = map.getWorldSize();
+        cameraTarget.set(currentWorldSize / 2f, currentWorldSize / 2f);
+        targetZoom = 1f;
+        
+        Gdx.app.log("MarineRadar", "Zooming out to center - from level " + startMapZoomLevel + " to level 3");
     }
 
     @Override
@@ -629,6 +921,7 @@ public class MarineRadar extends ApplicationAdapter {
         camera.viewportHeight = height;
         camera.update();
         uiStage.getViewport().update(width, height, true);
+        ship3DRenderer.resize(width, height);
     }
 
     @Override
@@ -646,6 +939,10 @@ public class MarineRadar extends ApplicationAdapter {
         @Override
         public boolean scrolled(float amountX, float amountY) {
             map.zoomTowardsCursor(amountY, Gdx.input.getX(), Gdx.input.getY());
+            // Disable tracking and animations on manual zoom
+            trackingShip = false;
+            trackedShip = null;
+            animatingZoomOut = false;
             return true;
         }
 

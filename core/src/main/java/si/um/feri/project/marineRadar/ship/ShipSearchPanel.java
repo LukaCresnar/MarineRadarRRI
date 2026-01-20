@@ -29,6 +29,7 @@ public class ShipSearchPanel extends Table {
     public interface ShipSelectionListener {
         void onShipSelected(Ship ship);
         void onShipDoubleClicked(Ship ship);
+        void onClose();
     }
 
     public ShipSearchPanel(List<Ship> ships, Skin skin, ShipSelectionListener listener) {
@@ -46,11 +47,25 @@ public class ShipSearchPanel extends Table {
         setBackground("default-rect");
         pad(10);
 
+        // Title and close button row
+        Table titleRow = new Table();
+        titleRow.add(new Label("Find Ship:", skin)).left().expandX();
+        TextButton closeButton = new TextButton("X", skin);
+        closeButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                if (selectionListener != null) {
+                    selectionListener.onClose();
+                }
+            }
+        });
+        titleRow.add(closeButton).width(30).height(30).right();
+        add(titleRow).colspan(2).fillX().row();
+
         searchField = new TextField("", skin);
         searchField.setMaxLength(50);
         searchField.setMessageText("Search ships...");
-        add(new Label("Find Ship:", skin)).padRight(5);
-        add(searchField).width(200).padRight(5).row();
+        add(searchField).colspan(2).width(300).padTop(10).row();
 
         shipListContainer = new Table();
         shipListContainer.left().top();
@@ -59,8 +74,8 @@ public class ShipSearchPanel extends Table {
         scrollPane.setScrollingDisabled(true, false);
         scrollPane.setHeight(300);
 
-        add(new Label("Available Ships:", skin)).left().padTop(10).row();
-        add(scrollPane).width(300).height(300).left().padTop(5).row();
+        add(new Label("Available Ships:", skin)).colspan(2).left().padTop(10).row();
+        add(scrollPane).colspan(2).width(300).height(300).left().padTop(5).row();
 
         searchField.addListener(event -> {
             if (event instanceof ChangeListener.ChangeEvent) {
@@ -113,22 +128,12 @@ public class ShipSearchPanel extends Table {
         row.addListener(new ClickListener() {
             @Override
             public void clicked(InputEvent event, float x, float y) {
-                long currentTime = System.currentTimeMillis();
-
-                if (lastClickedShip == ship && (currentTime - lastClickTime) < DOUBLE_CLICK_TIME) {
-                    if (selectionListener != null) {
-                        selectionListener.onShipDoubleClicked(ship);
-                    }
-                    lastClickedShip = null;
-                    lastClickTime = 0;
-                } else {
-                    selectedShip = ship;
-                    if (selectionListener != null) {
-                        selectionListener.onShipSelected(ship);
-                    }
-                    highlightSelectedRow();
-                    lastClickedShip = ship;
-                    lastClickTime = currentTime;
+                selectedShip = ship;
+                highlightSelectedRow();
+                
+                // Single click now focuses on ship (zoom in and show)
+                if (selectionListener != null) {
+                    selectionListener.onShipDoubleClicked(ship);
                 }
             }
         });

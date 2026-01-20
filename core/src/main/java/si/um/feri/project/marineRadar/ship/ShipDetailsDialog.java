@@ -8,25 +8,48 @@ public class ShipDetailsDialog extends Dialog {
 
     private Ship ship;
     private ShipSelectionListener listener;
+    private OnCloseListener closeListener;
+    private boolean compactMode = false; // For 3D mode - no buttons
 
     public interface ShipSelectionListener {
         void onTrack(Ship ship);
         void onFocusShip(Ship ship);
+    }
+    
+    public interface OnCloseListener {
+        void onClose();
     }
 
     public ShipDetailsDialog(Ship ship, Skin skin, ShipSelectionListener listener) {
         super("", skin);
         this.ship = ship;
         this.listener = listener;
+        this.compactMode = false;
 
         build();
     }
+    
+    /**
+     * Constructor for compact mode (3D view) - no action buttons
+     */
+    public ShipDetailsDialog(Ship ship, Skin skin, boolean compactMode) {
+        super("", skin);
+        this.ship = ship;
+        this.listener = null;
+        this.compactMode = compactMode;
+
+        build();
+    }
+    
+    public void setOnCloseListener(OnCloseListener closeListener) {
+        this.closeListener = closeListener;
+    }
 
     private void build() {
-        getTitleLabel().setText("Vessel Information");
+        getTitleLabel().setText(compactMode ? "Vessel Info" : "Vessel Information");
 
         Table content = getContentTable();
-        content.pad(20);
+        content.pad(compactMode ? 10 : 20);
 
         // Vessel identity section
         addSection(content, "VESSEL IDENTITY");
@@ -77,43 +100,60 @@ public class ShipDetailsDialog extends Dialog {
             }
         }
 
-        // Buttons
-        Table buttonTable = getButtonTable();
-        buttonTable.pad(10);
+        // Only show buttons in normal mode, not compact mode
+        if (!compactMode) {
+            // Buttons
+            Table buttonTable = getButtonTable();
+            buttonTable.pad(10);
 
-        TextButton trackButton = new TextButton("Track Vessel", getSkin());
-        trackButton.addListener(new ClickListener() {
-            @Override
-            public void clicked(InputEvent event, float x, float y) {
-                if (listener != null) {
-                    listener.onTrack(ship);
+            TextButton trackButton = new TextButton("Track (Follow)", getSkin());
+            trackButton.addListener(new ClickListener() {
+                @Override
+                public void clicked(InputEvent event, float x, float y) {
+                    if (listener != null) {
+                        listener.onTrack(ship);
+                    }
+                    hide();
                 }
-                hide();
-            }
-        });
+            });
 
-        TextButton focusButton = new TextButton("Focus & Zoom", getSkin());
-        focusButton.addListener(new ClickListener() {
-            @Override
-            public void clicked(InputEvent event, float x, float y) {
-                if (listener != null) {
-                    listener.onFocusShip(ship);
+            TextButton focusButton = new TextButton("Focus & 3D", getSkin());
+            focusButton.addListener(new ClickListener() {
+                @Override
+                public void clicked(InputEvent event, float x, float y) {
+                    if (listener != null) {
+                        listener.onFocusShip(ship);
+                    }
+                    hide();
                 }
-                hide();
-            }
-        });
+            });
 
-        TextButton closeButton = new TextButton("Close", getSkin());
-        closeButton.addListener(new ClickListener() {
-            @Override
-            public void clicked(InputEvent event, float x, float y) {
-                hide();
-            }
-        });
+            TextButton closeButton = new TextButton("Close", getSkin());
+            closeButton.addListener(new ClickListener() {
+                @Override
+                public void clicked(InputEvent event, float x, float y) {
+                    if (closeListener != null) {
+                        closeListener.onClose();
+                    }
+                    hide();
+                }
+            });
 
-        buttonTable.add(trackButton).pad(5).width(120);
-        buttonTable.add(focusButton).pad(5).width(120);
-        buttonTable.add(closeButton).pad(5).width(120);
+            buttonTable.add(trackButton).pad(5).width(120);
+            buttonTable.add(focusButton).pad(5).width(120);
+            buttonTable.add(closeButton).pad(5).width(120);
+        }
+    }
+    
+    /**
+     * Update the ship data displayed in the dialog
+     */
+    public void updateShip(Ship ship) {
+        this.ship = ship;
+        // Rebuild the content
+        getContentTable().clear();
+        getButtonTable().clear();
+        build();
     }
 
     private void addSection(Table table, String title) {

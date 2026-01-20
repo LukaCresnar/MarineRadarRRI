@@ -177,9 +177,6 @@ public class ShipRenderer {
                 // Draw course in orange (heading color)
                 shapeRenderer.setColor(HEADING_LINE);
                 shapeRenderer.line(lastP.x, lastP.y, cx, cy);
-
-                // Log debug info
-                Gdx.app.log("ShipDebug", String.format("%s rot=%.1f seg=%.1f course=%.1f", ship.name, ship.rotation, segBearing, ship.course));
             }
         }
         shapeRenderer.end();
