@@ -18,6 +18,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
+import com.badlogic.gdx.scenes.scene2d.Touchable;
 import com.badlogic.gdx.utils.viewport.ScreenViewport;
 import si.um.feri.project.marineRadar.map.TileMapRenderer;
 import si.um.feri.project.marineRadar.ship.Ship;
@@ -243,7 +244,17 @@ public class MarineRadar extends ApplicationAdapter {
         findShipButton.addListener(new ClickListener() {
             @Override
             public void clicked(InputEvent event, float x, float y) {
-                shipSearchPanel.setVisible(!shipSearchPanel.isVisible());
+                boolean show = !shipSearchPanel.isVisible();
+                shipSearchPanel.setVisible(show);
+                shipSearchPanel.setTouchable(show ? Touchable.enabled : Touchable.disabled);
+                // If showing, give keyboard focus to the search field; if hiding, clear scroll/keyboard focus so map scroll works
+                if (show) {
+                    uiStage.setKeyboardFocus(shipSearchPanel);
+                    uiStage.setScrollFocus(shipSearchPanel);
+                } else {
+                    uiStage.setKeyboardFocus(null);
+                    uiStage.setScrollFocus(null);
+                }
             }
         });
         
@@ -279,6 +290,9 @@ public class MarineRadar extends ApplicationAdapter {
             @Override
             public void onClose() {
                 shipSearchPanel.setVisible(false);
+                shipSearchPanel.setTouchable(Touchable.disabled);
+                uiStage.setKeyboardFocus(null);
+                uiStage.setScrollFocus(null);
             }
         });
         shipSearchPanel.setVisible(false);
