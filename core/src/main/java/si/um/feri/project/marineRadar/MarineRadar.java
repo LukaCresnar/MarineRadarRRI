@@ -4,6 +4,11 @@ import com.badlogic.gdx.*;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.math.Vector3;
@@ -12,6 +17,7 @@ import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
+import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
 import com.badlogic.gdx.utils.viewport.ScreenViewport;
 import si.um.feri.project.marineRadar.map.TileMapRenderer;
 import si.um.feri.project.marineRadar.ship.Ship;
@@ -39,6 +45,9 @@ public class MarineRadar extends ApplicationAdapter {
 
     private Stage uiStage;
     private Skin skin;
+    // Configurable skin file path (system property: 'marineRadar.skin')
+    private String skinFile;
+    public static final String SKIN_PROPERTY = "marineRadar.skin";
     private Label positionLabel;
     private Label zoomLabel;
     private Label shipCountLabel;
@@ -122,7 +131,72 @@ public class MarineRadar extends ApplicationAdapter {
 
     private void setupUI() {
         uiStage = new Stage(new ScreenViewport());
-        skin = new Skin(Gdx.files.internal("uiskin.json"));
+        // Use configurable skin file; default to skin/metal-ui.json
+        skinFile = System.getProperty(SKIN_PROPERTY, "skin/metal-ui.json");
+        Gdx.app.log("MarineRadar", "Using skin file: " + skinFile);
+        try {
+            if (Gdx.files.internal(skinFile).exists()) {
+                skin = new Skin(Gdx.files.internal(skinFile));
+                Gdx.app.log("MarineRadar", "Loaded skin: " + skinFile);
+            } else {
+                Gdx.app.log("MarineRadar", "Skin file not found: " + skinFile + ". Creating minimal skin.");
+                skin = new Skin();
+                BitmapFont font = new BitmapFont();
+                Label.LabelStyle labelStyle = new Label.LabelStyle(font, com.badlogic.gdx.graphics.Color.WHITE);
+                skin.add("default", labelStyle);
+                TextButton.TextButtonStyle tbs = new TextButton.TextButtonStyle();
+                tbs.font = font;
+                skin.add("default", tbs);
+            }
+        } catch (Exception e) {
+            Gdx.app.log("MarineRadar", "Failed to load skin '" + skinFile + "': " + e.getMessage() + ". Creating minimal skin.");
+            skin = new Skin();
+            BitmapFont font = new BitmapFont();
+            Label.LabelStyle labelStyle = new Label.LabelStyle(font, com.badlogic.gdx.graphics.Color.WHITE);
+            skin.add("default", labelStyle);
+            TextButton.TextButtonStyle tbs = new TextButton.TextButtonStyle();
+            tbs.font = font;
+            skin.add("default", tbs);
+        }
+
+        // Ensure 'default-rect' drawable exists (many UI tables expect it). If missing, add a simple colored drawable.
+        if (!skin.has("default-rect", Drawable.class)) {
+            Pixmap pm = new Pixmap(4, 4, Pixmap.Format.RGBA8888);
+            pm.setColor(0.12f, 0.12f, 0.12f, 1f);
+            pm.fill();
+            Texture tex = new Texture(pm);
+            pm.dispose();
+            skin.add("default-rect", new TextureRegionDrawable(new TextureRegion(tex)));
+            Gdx.app.log("MarineRadar", "Added fallback drawable 'default-rect' to skin.");
+        }
+
+        // Resolve drawables to use directly (safer than relying on skin name lookup at setBackground time)
+        Drawable defaultRectDrawable;
+        if (skin.has("default-rect", Drawable.class)) {
+            defaultRectDrawable = skin.getDrawable("default-rect");
+        } else {
+            Pixmap pm2 = new Pixmap(4, 4, Pixmap.Format.RGBA8888);
+            pm2.setColor(0.12f, 0.12f, 0.12f, 1f);
+            pm2.fill();
+            Texture tex2 = new Texture(pm2);
+            pm2.dispose();
+            defaultRectDrawable = new TextureRegionDrawable(new TextureRegion(tex2));
+        }
+
+        // Prefer a white background for info panels; fall back to 'rect' or create a white texture
+        Drawable whiteDrawable;
+        if (skin.has("white", Drawable.class)) {
+            whiteDrawable = skin.getDrawable("white");
+        } else if (skin.has("rect", Drawable.class)) {
+            whiteDrawable = skin.getDrawable("rect");
+        } else {
+            Pixmap pm3 = new Pixmap(4, 4, Pixmap.Format.RGBA8888);
+            pm3.setColor(1f, 1f, 1f, 1f);
+            pm3.fill();
+            Texture tex3 = new Texture(pm3);
+            pm3.dispose();
+            whiteDrawable = new TextureRegionDrawable(new TextureRegion(tex3));
+        }
 
         mainUITable = new Table();
         mainUITable.setFillParent(true);
@@ -130,7 +204,7 @@ public class MarineRadar extends ApplicationAdapter {
         mainUITable.pad(10);
 
         Table infoPanel = new Table(skin);
-        infoPanel.setBackground("default-rect");
+        infoPanel.setBackground(whiteDrawable);
         infoPanel.pad(10);
 
         positionLabel = new Label("Position: 0.0, 0.0", skin);
@@ -204,7 +278,7 @@ public class MarineRadar extends ApplicationAdapter {
         mode3DUI.pad(10);
         
         Table info3DPanel = new Table(skin);
-        info3DPanel.setBackground("default-rect");
+        info3DPanel.setBackground(defaultRectDrawable);
         info3DPanel.pad(10);
         
         ship3DInfoLabel = new Label("3D View Mode", skin);
@@ -935,6 +1009,15 @@ public class MarineRadar extends ApplicationAdapter {
         if (shipRenderer != null) shipRenderer.dispose();
     }
 
+    /**
+     * Set the skin file path to be used when the application is created.
+     * Example: System property 'marineRadar.skin' or call this method before starting the app.
+     */
+    public void setSkinFile(String skinFile) {
+        this.skinFile = skinFile;
+        Gdx.app.log("MarineRadar", "skinFile set to " + skinFile);
+    }
+
     private class MapInputProcessor extends InputAdapter {
         @Override
         public boolean scrolled(float amountX, float amountY) {
@@ -946,6 +1029,9 @@ public class MarineRadar extends ApplicationAdapter {
             return true;
         }
 
+        private long lastMapClickTime = 0;
+        private Ship lastMapClickedShip = null;
+
         @Override
         public boolean touchDown(int screenX, int screenY, int pointer, int button) {
             if (button == Input.Buttons.LEFT) {
@@ -953,13 +1039,39 @@ public class MarineRadar extends ApplicationAdapter {
                 Ship clicked = findShipAt(worldPos.x, worldPos.y);
 
                 if (clicked != null) {
-                    // Clear previous selection
+                    long now = System.currentTimeMillis();
+
+                    // Double-click on map: open ship details
+                    if (lastMapClickedShip == clicked && (now - lastMapClickTime) <= ShipSearchPanel.DOUBLE_CLICK_TIME) {
+                        // Clear previous selection
+                        if (selectedShip != null) {
+                            selectedShip.isSelected = false;
+                        }
+                        selectedShip = clicked;
+                        selectedShip.isSelected = true;
+                        showShipDetails(clicked);
+                        // reset
+                        lastMapClickedShip = null;
+                        lastMapClickTime = 0;
+                        return true;
+                    }
+
+                    // Single click: move camera to ship location (do not open 3D)
+                    Vector2 pos = map.latLonToPixel(clicked.lat, clicked.lon);
+                    camera.position.set(pos.x, pos.y, 0);
+                    camera.update();
+
+                    // Mark selected
                     if (selectedShip != null) {
                         selectedShip.isSelected = false;
                     }
                     selectedShip = clicked;
                     selectedShip.isSelected = true;
-                    showShipDetails(clicked);
+
+                    // store last click for double-click detection
+                    lastMapClickedShip = clicked;
+                    lastMapClickTime = now;
+
                     return true;
                 }
             }

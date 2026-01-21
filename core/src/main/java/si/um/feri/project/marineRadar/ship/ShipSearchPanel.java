@@ -4,6 +4,11 @@ import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.scenes.scene2d.utils.Drawable;
+import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,7 +49,20 @@ public class ShipSearchPanel extends Table {
     }
 
     private void setupUI() {
-        setBackground("default-rect");
+        Drawable bg;
+        if (skin.has("default-rect", Drawable.class)) {
+            bg = skin.getDrawable("default-rect");
+        } else if (skin.has("rect", Drawable.class)) {
+            bg = skin.getDrawable("rect");
+        } else {
+            Pixmap pm = new Pixmap(4, 4, Pixmap.Format.RGBA8888);
+            pm.setColor(0.12f, 0.12f, 0.12f, 1f);
+            pm.fill();
+            Texture tex = new Texture(pm);
+            pm.dispose();
+            bg = new TextureRegionDrawable(new TextureRegion(tex));
+        }
+        setBackground(bg);
         pad(10);
 
         // Title and close button row
@@ -113,7 +131,19 @@ public class ShipSearchPanel extends Table {
 
     private Table createShipRow(Ship ship) {
         Table row = new Table(skin);
-        row.setBackground("default-rect");
+        // Prefer a white background for list rows. Use a skin drawable named 'white' if present, otherwise create a white Pixmap fallback.
+        Drawable rowBg;
+        if (skin.has("white", Drawable.class)) {
+            rowBg = skin.getDrawable("white");
+        } else {
+            Pixmap pm = new Pixmap(4, 4, Pixmap.Format.RGBA8888);
+            pm.setColor(1f, 1f, 1f, 1f);
+            pm.fill();
+            Texture tex = new Texture(pm);
+            pm.dispose();
+            rowBg = new TextureRegionDrawable(new TextureRegion(tex));
+        }
+        row.setBackground(rowBg);
         row.pad(8);
 
         String shipInfo = String.format("%s (%s)", ship.name, ship.mmsi);
@@ -128,12 +158,28 @@ public class ShipSearchPanel extends Table {
         row.addListener(new ClickListener() {
             @Override
             public void clicked(InputEvent event, float x, float y) {
-                selectedShip = ship;
-                highlightSelectedRow();
-                
-                // Single click now focuses on ship (zoom in and show)
-                if (selectionListener != null) {
-                    selectionListener.onShipDoubleClicked(ship);
+                long now = System.currentTimeMillis();
+
+                // Double-click detection
+                if (lastClickedShip == ship && (now - lastClickTime) <= DOUBLE_CLICK_TIME) {
+                    // Double click: perform the double-click action (focus & 3D)
+                    if (selectionListener != null) {
+                        selectionListener.onShipDoubleClicked(ship);
+                    }
+                    // reset
+                    lastClickedShip = null;
+                    lastClickTime = 0;
+                } else {
+                    // Single click: select the ship (move to location) and highlight
+                    selectedShip = ship;
+                    highlightSelectedRow();
+
+                    if (selectionListener != null) {
+                        selectionListener.onShipSelected(ship);
+                    }
+
+                    lastClickedShip = ship;
+                    lastClickTime = now;
                 }
             }
         });
