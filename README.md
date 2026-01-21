@@ -100,42 +100,130 @@ The UI is designed to be clean, readable, and maritime-themed.
 
 ## Technical Stack
 
-- LibGDX
-- OrthographicCamera with manual zoom and panning
-- Online tile fetching via HTTP
-- Optional local tile caching
-- AIS API integration module
-- Layered rendering pipeline:
-    1. Map tiles
-    2. Cloud layer
-    3. Ship routes
-    4. Ship icons
-    5. UI overlay
-- Timed updates with smooth interpolation for ship movement
+- **Framework**: LibGDX (cross-platform game development)
+- **Graphics**: OrthographicCamera (2D) & PerspectiveCamera (3D)
+- **Map Rendering**: Online tile fetching (OpenStreetMap-compatible)
+- **Tile Management**: Multi-level caching with fallback rendering
+- **AIS Integration**: WebSocket connection to aisstream.io
+- **Ship Icons**: Type-specific PNG assets (9 categories)
+- **3D Models**: OBJ/G3DB support with procedural fallback
+- **UI System**: Scene2D with custom maritime-themed skin
+- **Layered Rendering Pipeline**:
+    1. Map tiles (zoom-aware, smooth transitions)
+    2. Cloud parallax layer (atmospheric effects)
+    3. Ship routes and history trails
+    4. Type-specific ship icons (rotation based on movement)
+    5. UI overlay (info panels, dialogs, search)
+- **Performance**: 60 FPS cap, smart tile caching (800 tiles max)
+- **Ship Tracking**: Location history (100 points), smooth interpolation
+
+---
+
+## Key Features
+
+✓ **Real-time AIS Data**: Live ship positions from global maritime network  
+✓ **Smart Search**: Filter by name, MMSI, or speed (>5 knots)  
+✓ **Dual Tracking Modes**: 2D continuous follow or 3D immersive view  
+✓ **Type-Specific Icons**: 9 ship categories (cargo, tanker, passenger, fishing, etc.)  
+✓ **Movement Visualization**: History trails, bearing indicators, smooth rotation  
+✓ **Professional UI**: Maritime-themed skin, clean information panels  
+✓ **Configurable Settings**: Max ships limit, radar sweep, clouds, routes  
+✓ **Smooth Navigation**: Zoom levels 2-18, pan/drag support  
+✓ **Performance Optimized**: Efficient tile caching, FPS limiting  
 
 ---
 
 ## Rendering Pipeline
 
-Map Tiles  
-↓  
-Cloud / Parallax Layer  
-↓  
-Ship Trails  
-↓  
-Ship Icons  
-↓  
-UI Layer
+```
+Map Tiles (zoom-aware, cached)
+    ↓
+Cloud / Parallax Layer (atmospheric)
+    ↓
+Ship History Trails (movement visualization)
+    ↓
+Ship Icons (type-specific, rotation-aware)
+    ↓
+Debug Indicators (bearing lines)
+    ↓
+UI Layer (panels, dialogs, search)
+```
 
 ---
 
 ## Project Outcome
 
-MarineRadar demonstrates:
-- Real-time API communication
-- Dynamic map rendering
-- Multi-layer graphical composition
-- Interactive camera control
-- Clean separation of rendering and data logic
+MarineRadar successfully demonstrates:
+- **Real-time Data Integration**: Seamless WebSocket connection to global AIS network
+- **Advanced Map Rendering**: Multi-level tile system with smooth zoom transitions
+- **Interactive 3D Graphics**: Dual 2D/3D rendering modes with ship models
+- **Professional UI/UX**: Intuitive search, filtering, and ship tracking interfaces
+- **Performance Optimization**: Smart caching, FPS limiting, efficient rendering pipeline
+- **Clean Architecture**: Modular design with clear separation of concerns
 
-The result is a professional-looking, responsive, and informative maritime tracking application.
+**Technologies Showcased**:
+- LibGDX game framework
+- WebSocket real-time communication
+- 3D graphics and camera systems
+- Tile-based map rendering
+- UI/UX design patterns
+- Performance optimization techniques
+
+The result is a **professional, responsive, and informative maritime tracking application** suitable for educational purposes, maritime monitoring, or as a foundation for more advanced navigation systems.
+
+---
+
+## How to Run
+
+```bash
+# Build and run the desktop application
+./gradlew lwjgl3:run
+
+# Or on Windows
+gradlew.bat lwjgl3:run
+```
+
+**System Requirements**:
+- Java 8 or higher
+- Internet connection (for map tiles and AIS data)
+- OpenGL-compatible graphics
+
+---
+
+## Controls
+
+**Navigation**:
+- Mouse drag: Pan map
+- Scroll wheel: Zoom in/out
+- Arrow keys: Pan map
+- A/S keys: Zoom in/out
+
+**Ship Interaction**:
+- Click ship: View details
+- Find Ship button: Open search panel
+- Track button (in dialog): Follow ship continuously
+- Focus button (in dialog): Enter 3D view
+
+**3D View** (when focused on a ship):
+- A/D or Arrows: Rotate camera
+- W/S: Zoom in/out
+- Q/E: Camera height
+- 1-4: Camera modes
+- ESC: Exit 3D view
+
+---
+
+## Credits
+
+**Team BlueSignal**  
+- Dragan Stojanović - Lead Developer
+- Luka Črešnar - Developer
+
+**Technologies**:
+- LibGDX Framework
+- OpenStreetMap (map tiles)
+- aisstream.io (AIS data)
+
+---
+
+*Developed for educational purposes as part of game development coursework.*

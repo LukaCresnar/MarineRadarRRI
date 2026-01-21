@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
+import si.um.feri.project.marineRadar.MarineRadarConfig;
 import si.um.feri.project.marineRadar.map.TileMapRenderer;
 
 import java.util.HashMap;
@@ -25,12 +26,11 @@ public class ShipRenderer {
     private static final int MIN_ZOOM_FOR_ICONS = 8; // Show icons at zoom level 8+
     private static final float ICON_ROTATION_ADJUST = 0f; // Adjustment in degrees; use 0 and tweak if needed
     private static final float ICON_DRAW_OFFSET = -90f; // Screen-space offset (degrees) if icon graphic baseline needs shift
+    
+    // Culling margin (pixels outside viewport to still render)
+    private static final float CULLING_MARGIN = 50f;
 
-    // Colors
-    private static final Color SHIP_DEFAULT = new Color(1f, 0f, 0f, 1f);      // Red
-    private static final Color SHIP_SELECTED = new Color(1f, 1f, 0f, 1f);     // Yellow
-    private static final Color SHIP_TRACKED = new Color(0f, 1f, 0f, 1f);      // Green
-    private static final Color SHIP_MOORED = new Color(0.5f, 0.5f, 0.5f, 1f); // Gray
+    // Colors - now using config
     private static final Color ROUTE_LINE = new Color(0f, 1f, 1f, 0.5f);      // Cyan
     private static final Color HEADING_LINE = new Color(1f, 0.5f, 0f, 0.8f);  // Orange
     private static final Color PATH_COLOR = new Color(0f, 0f, 0f, 1f);       // Black path for selected ship
@@ -86,10 +86,14 @@ public class ShipRenderer {
         int zoomLevel = mapRenderer.getZoomLevel();
         boolean useIcons = zoomLevel >= MIN_ZOOM_FOR_ICONS && !shipIcons.isEmpty();
         
-        // Debug: log zoom level occasionally
-        if (Gdx.graphics.getFrameId() % 60 == 0) {
-            Gdx.app.log("ShipRenderer", "Zoom level: " + zoomLevel + ", useIcons: " + useIcons + ", iconsLoaded: " + shipIcons.size());
-        }
+        // Calculate viewport bounds for culling
+        float viewportLeft = camera.position.x - (camera.viewportWidth * camera.zoom / 2f) - CULLING_MARGIN;
+        float viewportRight = camera.position.x + (camera.viewportWidth * camera.zoom / 2f) + CULLING_MARGIN;
+        float viewportBottom = camera.position.y - (camera.viewportHeight * camera.zoom / 2f) - CULLING_MARGIN;
+        float viewportTop = camera.position.y + (camera.viewportHeight * camera.zoom / 2f) + CULLING_MARGIN;
+        
+        // Count visible ships for debug
+        int visibleCount = 0;
 
         shapeRenderer.setProjectionMatrix(camera.combined);
 
@@ -107,6 +111,16 @@ public class ShipRenderer {
             spriteBatch.setProjectionMatrix(camera.combined);
             spriteBatch.begin();
             for (Ship ship : ships) {
+                // Culling: skip ships outside viewport
+                Vector2 pos = mapRenderer.latLonToPixel(ship.lat, ship.lon);
+                if (pos.x < viewportLeft || pos.x > viewportRight || 
+                    pos.y < viewportBottom || pos.y > viewportTop) {
+                    // Always render selected/tracked ships regardless of position
+                    if (ship != selectedShip && ship != trackedShip) {
+                        continue;
+                    }
+                }
+                visibleCount++;
                 drawShipIcon(ship, selectedShip, trackedShip, camera.zoom);
             }
             spriteBatch.end();
@@ -114,6 +128,15 @@ public class ShipRenderer {
             // Draw ships as dots
             shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
             for (Ship ship : ships) {
+                // Culling: skip ships outside viewport
+                Vector2 pos = mapRenderer.latLonToPixel(ship.lat, ship.lon);
+                if (pos.x < viewportLeft || pos.x > viewportRight || 
+                    pos.y < viewportBottom || pos.y > viewportTop) {
+                    if (ship != selectedShip && ship != trackedShip) {
+                        continue;
+                    }
+                }
+                visibleCount++;
                 drawShipDot(ship, selectedShip, trackedShip, camera.zoom);
             }
             shapeRenderer.end();
@@ -126,7 +149,7 @@ public class ShipRenderer {
                 drawHeadingIndicator(ship, camera.zoom);
             }
         }
-        shapeRenderer.end();
+        shapeRenderer.end();;
          
         // Draw path (location history) for selected ship
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
@@ -259,23 +282,23 @@ public class ShipRenderer {
     private void drawShipDot(Ship ship, Ship selectedShip, Ship trackedShip, float zoom) {
         Vector2 pos = mapRenderer.latLonToPixel(ship.lat, ship.lon);
 
-        // Determine color
+        // Determine color using config colors
         Color color;
         float radius;
 
         if (ship == selectedShip) {
-            color = SHIP_SELECTED;
+            color = MarineRadarConfig.SHIP_SELECTED;
             radius = 10f;
         } else if (ship == trackedShip) {
-            color = SHIP_TRACKED;
+            color = MarineRadarConfig.SHIP_TRACKED;
             radius = 8f;
         } else if (ship.shipType == null || "Unknown".equals(ship.shipType)) {
-            // Unknown ship type — render red
-            color = SHIP_DEFAULT; // red
+            // Unknown ship type — render with unknown color
+            color = MarineRadarConfig.SHIP_UNKNOWN;
             radius = 6f;
         } else {
-            // Known type (not selected/tracked) — render green
-            color = SHIP_TRACKED;
+            // Known type (not selected/tracked) — render with known color
+            color = MarineRadarConfig.SHIP_KNOWN;
             radius = 5f;
         }
 

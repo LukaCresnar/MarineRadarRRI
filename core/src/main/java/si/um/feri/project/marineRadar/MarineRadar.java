@@ -86,7 +86,6 @@ public class MarineRadar extends ApplicationAdapter {
 
     private boolean animatingToShip = false;
     private Vector2 cameraTarget = new Vector2();
-    private float targetZoom = 1f;
     private float animationProgress = 0f;
     private long lastSimUpdate = 0; // Timestamp of last simulation update (ms)
     
@@ -97,10 +96,25 @@ public class MarineRadar extends ApplicationAdapter {
     private int startMapZoomLevel = 3; // Starting map zoom level for animation
     private int targetMapZoomLevel = 3; // Target map zoom level for animation
     private float lastZoomTransitionCheck = 0f; // For gradual zoom transitions
+    
+    // Connection animation
+    private float connectionPulseTime = 0f;
+    
+    // Zoom indicator
+    private Label zoomIndicatorLabel;
+    
+    // Mini-map components
+    private boolean showMiniMap = true;
+    private Texture miniMapTexture;
+    private static final float MINIMAP_SIZE = 180f;
+    private static final float MINIMAP_MARGIN = 15f;
 
     @Override
     public void create() {
         Gdx.app.setLogLevel(Application.LOG_INFO);
+        
+        // Set FPS limit for consistent performance
+        Gdx.graphics.setForegroundFPS(60);
 
         camera = new OrthographicCamera(
             Gdx.graphics.getWidth(),
@@ -119,6 +133,7 @@ public class MarineRadar extends ApplicationAdapter {
         shipRenderer = new ShipRenderer(shapeRenderer, map);
 
         setupUI();
+        createMiniMapTexture();
 
         mapInputProcessor = new MapInputProcessor();
         inputMultiplexer = new InputMultiplexer();
@@ -212,11 +227,16 @@ public class MarineRadar extends ApplicationAdapter {
         zoomLabel = new Label("Zoom: 1.0", skin);
         shipCountLabel = new Label("Ships: 0", skin);
         connectionLabel = new Label("Status: Connecting...", skin);
+        
+        // Map loading status label
+        Label mapStatusLabel = new Label("Map: Loading...", skin);
+        mapStatusLabel.setName("mapStatusLabel");
 
         infoPanel.add(positionLabel).left().row();
         infoPanel.add(zoomLabel).left().row();
         infoPanel.add(shipCountLabel).left().row();
         infoPanel.add(connectionLabel).left().row();
+        infoPanel.add(mapStatusLabel).left().row();
 
         mainUITable.add(infoPanel).left().row();
 
@@ -299,6 +319,18 @@ public class MarineRadar extends ApplicationAdapter {
         mainUITable.add(shipSearchPanel).left().padTop(10).row();
 
         uiStage.addActor(mainUITable);
+        
+        // Create zoom indicator overlay in bottom-right corner
+        Table zoomIndicatorTable = new Table();
+        zoomIndicatorTable.setFillParent(true);
+        zoomIndicatorTable.bottom().right();
+        zoomIndicatorTable.pad(20);
+        
+        zoomIndicatorLabel = new Label("Zoom: 3", skin);
+        zoomIndicatorLabel.setFontScale(1.2f);
+        zoomIndicatorLabel.setColor(1f, 1f, 1f, 0.9f);
+        zoomIndicatorTable.add(zoomIndicatorLabel);
+        uiStage.addActor(zoomIndicatorTable);
         
         // Create 3D mode UI (separate table that's visible only in 3D mode)
         mode3DUI = new Table();
@@ -415,12 +447,21 @@ public class MarineRadar extends ApplicationAdapter {
                 showRoutes = !showRoutes;
             }
         });
+        
+        TextButton toggleMiniMapButton = new TextButton("Toggle Mini-Map", skin);
+        toggleMiniMapButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                showMiniMap = !showMiniMap;
+            }
+        });
 
         Table buttonTable = new Table();
         buttonTable.add(helpButton).pad(5);
         buttonTable.add(radarToggle).pad(5).row();
         buttonTable.add(toggleCloudsButton).pad(5);
-        buttonTable.add(toggleRoutesButton).pad(5);
+        buttonTable.add(toggleRoutesButton).pad(5).row();
+        buttonTable.add(toggleMiniMapButton).pad(5);
 
         contentTable.add(buttonTable).row();
 
@@ -429,9 +470,11 @@ public class MarineRadar extends ApplicationAdapter {
         TextButton closeButton = new TextButton("Close", skin);
         settingsDialog.button(closeButton);
         
-        // Make dialog modal to block interaction with elements behind it
-        settingsDialog.setModal(true);
+        // Non-modal dialog allows interaction with map while settings are open
+        settingsDialog.setModal(false);
     }
+    
+
 
     private void showSettingsDialog() {
         settingsDialog.show(uiStage);
@@ -483,10 +526,14 @@ public class MarineRadar extends ApplicationAdapter {
         // Hide 3D UI when not in 3D mode
         mode3DUI.setVisible(false);
 
+        // Handle keyboard shortcuts
+        handleKeyboardShortcuts();
+
         // Regular 2D map mode
         handleInput();
         updateRadar(delta);
         updateCameraAnimation(delta);
+        updateConnectionAnimation(delta);
         updateUI();
 
         if ((long) (Gdx.graphics.getFrameId()) % 30 == 0) {
@@ -511,6 +558,9 @@ public class MarineRadar extends ApplicationAdapter {
         if (showRadarSweep && selectedShip != null) {
             renderRadarSweep();
         }
+        
+        // Render mini-map
+        renderMiniMap();
 
         uiStage.act(delta);
         uiStage.draw();
@@ -717,13 +767,93 @@ public class MarineRadar extends ApplicationAdapter {
         positionLabel.setText(String.format("Position: %.4f, %.4f", latLon.y, latLon.x));
         zoomLabel.setText(String.format("Zoom Level: %d (%.2fx)", map.getZoomLevel(), camera.zoom));
         shipCountLabel.setText(String.format("Ships: %d", ships.size()));
+        
+        // Update zoom indicator overlay
+        if (zoomIndicatorLabel != null) {
+            zoomIndicatorLabel.setText(String.format("Zoom: %d", map.getZoomLevel()));
+        }
+        
+        // Update map loading status
+        Label mapStatusLabel = mainUITable.findActor("mapStatusLabel");
+        if (mapStatusLabel != null) {
+            int loading = map.getLoadingTileCount();
+            int cached = map.getCachedTileCount();
+            if (loading > 0) {
+                mapStatusLabel.setText(String.format("Map: Loading %d tiles...", loading));
+                mapStatusLabel.setColor(1f, 0.8f, 0.2f, 1f); // Yellow when loading
+            } else {
+                mapStatusLabel.setText(String.format("Map: %d tiles cached", cached));
+                mapStatusLabel.setColor(0.2f, 0.9f, 0.2f, 1f); // Green when loaded
+            }
+        }
 
+        // Animated connection status
+        updateConnectionStatus();
+    }
+    
+    private void updateConnectionAnimation(float delta) {
+        connectionPulseTime += delta * 3f; // Pulse speed
+        if (connectionPulseTime > MathUtils.PI2) {
+            connectionPulseTime -= MathUtils.PI2;
+        }
+    }
+    
+    private void updateConnectionStatus() {
         if (shipDataFetcher.isConnected()) {
-            connectionLabel.setText("Status: Connected");
-            connectionLabel.setColor(0f, 1f, 0f, 1f);
+            connectionLabel.setText("● Connected");
+            connectionLabel.setColor(MarineRadarConfig.CONNECTION_CONNECTED);
         } else {
-            connectionLabel.setText("Status: Disconnected");
-            connectionLabel.setColor(1f, 0f, 0f, 1f);
+            // Pulsing effect when disconnected/connecting
+            float pulse = (MathUtils.sin(connectionPulseTime) + 1f) / 2f;
+            connectionLabel.setText("◌ Connecting...");
+            // Interpolate between orange and red for pulsing effect
+            float r = MathUtils.lerp(1f, 0.9f, pulse);
+            float g = MathUtils.lerp(0.4f, 0.2f, pulse);
+            float b = MathUtils.lerp(0.1f, 0.1f, pulse);
+            connectionLabel.setColor(r, g, b, 1f);
+        }
+    }
+    
+    private void handleKeyboardShortcuts() {
+        // F - Open Find Ship panel
+        if (Gdx.input.isKeyJustPressed(MarineRadarConfig.KEY_FIND_SHIP)) {
+            if (!shipSearchPanel.isVisible()) {
+                shipSearchPanel.setVisible(true);
+                shipSearchPanel.refreshShips();
+            } else {
+                shipSearchPanel.setVisible(false);
+            }
+        }
+        
+        // H - Open Help dialog
+        if (Gdx.input.isKeyJustPressed(MarineRadarConfig.KEY_HELP)) {
+            showHelpScreen();
+        }
+        
+        // ESC - Close dialogs or exit tracking
+        if (Gdx.input.isKeyJustPressed(MarineRadarConfig.KEY_ESCAPE)) {
+            // Close ship search panel if open
+            if (shipSearchPanel.isVisible()) {
+                shipSearchPanel.setVisible(false);
+                return;
+            }
+            // Close ship details dialog if open
+            if (currentShipDialog != null) {
+                currentShipDialog.hide();
+                currentShipDialog.remove();
+                currentShipDialog = null;
+                return;
+            }
+            // Stop tracking if active
+            if (trackingShip) {
+                trackingShip = false;
+                trackedShip = null;
+                return;
+            }
+            // Close settings if open
+            if (settingsDialog.isVisible()) {
+                settingsDialog.hide();
+            }
         }
     }
 
@@ -835,6 +965,171 @@ public class MarineRadar extends ApplicationAdapter {
 
         shapeRenderer.end();
     }
+    
+    /**
+     * Creates a simple world map texture for the mini-map
+     */
+    /**
+     * Loads the mini-map world texture from assets
+     */
+    private void createMiniMapTexture() {
+        miniMapTexture = new Texture(Gdx.files.internal("imgs/world_map.png"));
+        miniMapTexture.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
+        Gdx.app.log("MarineRadar", "Mini-map texture loaded: imgs/world_map.png");
+    }
+    
+    /**
+     * Renders the mini-map in the bottom-right corner with professional styling
+     */
+    private void renderMiniMap() {
+        if (!showMiniMap || show3DMode) return;
+        
+        float screenWidth = Gdx.graphics.getWidth();
+        float screenHeight = Gdx.graphics.getHeight();
+        
+        // Mini-map position (bottom-right, above zoom indicator)
+        float miniMapX = screenWidth - MINIMAP_SIZE - MINIMAP_MARGIN;
+        float miniMapY = MINIMAP_MARGIN + 40; // Above zoom indicator
+        
+        float borderWidth = 3f;
+        float outerBorderWidth = 1f;
+        
+        // Get world size at current zoom
+        int worldSize = map.getWorldSize();
+        
+        // Calculate viewport rectangle on mini-map
+        float viewLeft = camera.position.x - (camera.viewportWidth * camera.zoom / 2f);
+        float viewRight = camera.position.x + (camera.viewportWidth * camera.zoom / 2f);
+        float viewBottom = camera.position.y - (camera.viewportHeight * camera.zoom / 2f);
+        float viewTop = camera.position.y + (camera.viewportHeight * camera.zoom / 2f);
+        
+        // Convert to mini-map coordinates (0 to MINIMAP_SIZE)
+        float rectX = (viewLeft / worldSize) * MINIMAP_SIZE;
+        float rectY = (viewBottom / worldSize) * MINIMAP_SIZE;
+        float rectW = ((viewRight - viewLeft) / worldSize) * MINIMAP_SIZE;
+        float rectH = ((viewTop - viewBottom) / worldSize) * MINIMAP_SIZE;
+        
+        // Clamp to mini-map bounds
+        rectX = Math.max(0, Math.min(MINIMAP_SIZE - 2, rectX));
+        rectY = Math.max(0, Math.min(MINIMAP_SIZE - 2, rectY));
+        rectW = Math.max(2, Math.min(MINIMAP_SIZE - rectX, rectW));
+        rectH = Math.max(2, Math.min(MINIMAP_SIZE - rectY, rectH));
+        
+        // Setup screen-space rendering
+        shapeRenderer.setProjectionMatrix(uiStage.getCamera().combined);
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        
+        // Draw outer shadow/glow effect
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(0f, 0f, 0f, 0.1f);
+        shapeRenderer.rect(miniMapX - borderWidth - 2, miniMapY - borderWidth - 2, 
+                          MINIMAP_SIZE + (borderWidth + 2) * 2, MINIMAP_SIZE + (borderWidth + 2) * 2);
+        shapeRenderer.end();
+        
+        // Draw main border (dark frame)
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(0.15f, 0.15f, 0.2f, 0.30f);
+        shapeRenderer.rect(miniMapX - borderWidth, miniMapY - borderWidth, 
+                          MINIMAP_SIZE + borderWidth * 2, MINIMAP_SIZE + borderWidth * 2);
+        shapeRenderer.end();
+        
+        // Draw the mini-map texture (world map) - now with matching colors
+        uiStage.getBatch().begin();
+        uiStage.getBatch().setColor(1f, 1f, 1f, 1f); // Full opacity for quality
+        uiStage.getBatch().draw(miniMapTexture, miniMapX, miniMapY, MINIMAP_SIZE, MINIMAP_SIZE);
+        uiStage.getBatch().end();
+        
+        // Draw viewport rectangle (black border)
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        shapeRenderer.setColor(0f, 0f, 0f, 1f); // Black rectangle
+        shapeRenderer.rect(miniMapX + rectX, miniMapY + rectY, rectW, rectH);
+        shapeRenderer.end();
+        Gdx.gl.glLineWidth(1f);
+        
+        // Draw ships as tiny dots on mini-map
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        for (Ship ship : ships) {
+            Vector2 shipPixel = map.latLonToPixel(ship.lat, ship.lon);
+            float dotX = miniMapX + (shipPixel.x / worldSize) * MINIMAP_SIZE;
+            float dotY = miniMapY + (shipPixel.y / worldSize) * MINIMAP_SIZE;
+            
+            // Only draw if within mini-map bounds
+            if (dotX >= miniMapX && dotX <= miniMapX + MINIMAP_SIZE &&
+                dotY >= miniMapY && dotY <= miniMapY + MINIMAP_SIZE) {
+                
+                if (ship == trackedShip) {
+                    shapeRenderer.setColor(MarineRadarConfig.SHIP_TRACKED); // Green for tracked
+                } else if (ship == selectedShip) {
+                    shapeRenderer.setColor(MarineRadarConfig.SHIP_SELECTED); // Yellow for selected
+                } else {
+                    shapeRenderer.setColor(MarineRadarConfig.MINIMAP_SHIP); // Red for others
+                }
+                shapeRenderer.circle(dotX, dotY, 2f, 8);
+            }
+        }
+        shapeRenderer.end();
+        
+        // Draw outer highlight border (gives depth)
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(1f);
+        shapeRenderer.setColor(0.4f, 0.4f, 0.5f, 0.8f);
+        shapeRenderer.rect(miniMapX - borderWidth, miniMapY - borderWidth, 
+                          MINIMAP_SIZE + borderWidth * 2, MINIMAP_SIZE + borderWidth * 2);
+        // Inner highlight
+        shapeRenderer.setColor(0.3f, 0.3f, 0.4f, 0.6f);
+        shapeRenderer.rect(miniMapX - 1, miniMapY - 1, MINIMAP_SIZE + 2, MINIMAP_SIZE + 2);
+        shapeRenderer.end();
+    }
+    
+    /**
+     * Checks if a screen position is within the mini-map and handles navigation
+     * Returns true if the click was handled by the mini-map
+     */
+    private boolean handleMiniMapClick(float screenX, float screenY) {
+        if (!showMiniMap || show3DMode) return false;
+        
+        float screenWidth = Gdx.graphics.getWidth();
+        float screenHeight = Gdx.graphics.getHeight();
+        
+        // Mini-map position
+        float miniMapX = screenWidth - MINIMAP_SIZE - MINIMAP_MARGIN;
+        float miniMapY = MINIMAP_MARGIN + 40;
+        
+        // Convert screen Y to stage Y (flip)
+        float stageY = screenHeight - screenY;
+        
+        // Check if click is within mini-map bounds
+        if (screenX >= miniMapX && screenX <= miniMapX + MINIMAP_SIZE &&
+            stageY >= miniMapY && stageY <= miniMapY + MINIMAP_SIZE) {
+            
+            // Calculate normalized position on mini-map (0 to 1)
+            float normalizedX = (screenX - miniMapX) / MINIMAP_SIZE;
+            float normalizedY = (stageY - miniMapY) / MINIMAP_SIZE;
+            
+            // Convert to world coordinates
+            int worldSize = map.getWorldSize();
+            float targetX = normalizedX * worldSize;
+            float targetY = normalizedY * worldSize;
+            
+            // Move camera to clicked position (keep current zoom)
+            camera.position.x = targetX;
+            camera.position.y = targetY;
+            
+            // Stop any ongoing animations/tracking
+            animatingToShip = false;
+            trackingShip = false;
+            trackedShip = null;
+            
+            // Clamp camera to valid bounds
+            map.clampCamera();
+            
+            Gdx.app.log("MarineRadar", "Mini-map navigation to: " + targetX + ", " + targetY);
+            return true;
+        }
+        
+        return false;
+    }
 
     private void centerCamera() {
         int worldSize = map.getWorldSize();
@@ -857,23 +1152,44 @@ public class MarineRadar extends ApplicationAdapter {
     }
 
     private void showHelpScreen() {
-        Dialog dialog = new Dialog("Controls", skin);
+        Dialog dialog = new Dialog("Marine Radar - Help & Controls", skin);
         dialog.text(
-            "Marine Radar\n" +
-                "Team BlueSignal\n" +
-                "Dragan Stojanovic & Luka Cresnar\n\n" +
+            "═══════════════════════════\n" +
+                "   MARINE RADAR v1.0\n" +
+                "   Team BlueSignal\n" +
+                "   Dragan Stojanovic & Luka Cresnar\n" +
+                "═══════════════════════════\n\n" +
                 "NAVIGATION:\n" +
-                "• Mouse drag - move map\n" +
-                "• Scroll wheel - zoom\n" +
-                "• Arrow keys - move\n" +
-                "• A / S - zoom\n\n" +
+                "• Mouse drag - Pan map\n" +
+                "• Scroll wheel - Zoom in/out\n" +
+                "• Arrow keys - Pan map\n" +
+                "• A / S keys - Zoom in/out\n\n" +
+                "SHIP INTERACTION:\n" +
+                "• Click ship icon - View details\n" +
+                "• Track button - Follow ship\n" +
+                "• Focus button - 3D ship view\n" +
+                "• Find Ship - Search by name/MMSI\n\n" +
+                "SEARCH FILTERS:\n" +
+                "• Text search - Name or MMSI\n" +
+                "• >5kn filter - Moving vessels only\n\n" +
+                "VISUAL INDICATORS:\n" +
+                "• Red - Unknown vessel type\n" +
+                "• Yellow - Selected vessel\n" +
+                "• Green - Tracked vessel\n\n" +
                 "FEATURES:\n" +
                 "• Real-time AIS data\n" +
-                "• 3D ship view\n" +
-                "• Limited to 100 ships"
+                "• 3D ship visualization\n" +
+                "• Smooth camera tracking\n" +
+                "• Ship history (100 locations)"
         );
         dialog.button("Close");
         dialog.show(uiStage);
+        
+        // Center the dialog
+        dialog.setPosition(
+            (Gdx.graphics.getWidth() - dialog.getWidth()) / 2,
+            (Gdx.graphics.getHeight() - dialog.getHeight()) / 2
+        );
     }
 
     private void showShipDetails(Ship ship) {
@@ -1012,7 +1328,6 @@ public class MarineRadar extends ApplicationAdapter {
         // Set target to center of current map (will update as zoom changes)
         int currentWorldSize = map.getWorldSize();
         cameraTarget.set(currentWorldSize / 2f, currentWorldSize / 2f);
-        targetZoom = 1f;
         
         Gdx.app.log("MarineRadar", "Zooming out to center - from level " + startMapZoomLevel + " to level 3");
     }
@@ -1035,6 +1350,7 @@ public class MarineRadar extends ApplicationAdapter {
         ship3DRenderer.dispose();
         shipDataFetcher.stop();
         if (shipRenderer != null) shipRenderer.dispose();
+        if (miniMapTexture != null) miniMapTexture.dispose();
     }
 
     /**
@@ -1059,6 +1375,11 @@ public class MarineRadar extends ApplicationAdapter {
 
         @Override
         public boolean touchDown(int screenX, int screenY, int pointer, int button) {
+            // Check mini-map click first
+            if (button == Input.Buttons.LEFT && handleMiniMapClick(screenX, screenY)) {
+                return true;
+            }
+            
             if (button == Input.Buttons.LEFT) {
                 Vector3 worldPos = camera.unproject(new Vector3(screenX, screenY, 0));
                 Ship clicked = findShipAt(worldPos.x, worldPos.y);

@@ -34,6 +34,9 @@ public class TileMapRenderer {
     private static final int MAX_CACHE_SIZE = 800;
     private static final int FALLBACK_ZOOM_LEVELS = 4;
     private static final long TILE_EXPIRE_FRAMES = 600;
+    private static final int CONNECT_TIMEOUT_MS = 5000;  // Reduced from 10s
+    private static final int READ_TIMEOUT_MS = 5000;     // Reduced from 10s
+    private static final long FAILED_TILE_RETRY_FRAMES = 300; // Retry failed tiles after 5 seconds at 60fps
     
     // Core rendering
     private final OrthographicCamera camera;
@@ -43,7 +46,7 @@ public class TileMapRenderer {
     // Tile storage with thread-safe access
     private final ConcurrentHashMap<String, TileData> tileCache = new ConcurrentHashMap<>();
     private final Set<String> loadingTiles = ConcurrentHashMap.newKeySet();
-    private final Set<String> failedTiles = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap<String, Long> failedTiles = new ConcurrentHashMap<>(); // Track when tiles failed
     private final PriorityBlockingQueue<TileRequest> downloadQueue = new PriorityBlockingQueue<>();
     
     // Download management
@@ -121,6 +124,32 @@ public class TileMapRenderer {
         camera.position.set(worldSize / 2f, worldSize / 2f, 0);
         camera.zoom = 1f;
         camera.update();
+        
+        // Pre-request initial visible tiles with high priority
+        preloadInitialTiles();
+    }
+    
+    /**
+     * Pre-loads the initial visible tiles at startup for faster display
+     */
+    private void preloadInitialTiles() {
+        int maxTileCoord = (1 << zoomLevel) - 1;
+        int centerTileX = maxTileCoord / 2;
+        int centerTileY = maxTileCoord / 2;
+        
+        // Request center tiles first with highest priority
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = -2; dy <= 2; dy++) {
+                int tileX = centerTileX + dx;
+                int tileY = centerTileY + dy;
+                if (tileX >= 0 && tileX <= maxTileCoord && tileY >= 0 && tileY <= maxTileCoord) {
+                    int priority = Math.abs(dx) + Math.abs(dy); // Center tiles have priority 0
+                    requestTile(tileX, tileY, zoomLevel, priority);
+                }
+            }
+        }
+        
+        Gdx.app.log("TileMapRenderer", "Pre-loading " + Math.min(25, (maxTileCoord+1)*(maxTileCoord+1)) + " initial tiles");
     }
 
     /**
@@ -264,8 +293,21 @@ public class TileMapRenderer {
             tileData.essential = true;
             info.actualTexture = tileData.texture;
         } else {
-            // Request the tile if not already loading
-            if (!loadingTiles.contains(key) && !failedTiles.contains(key)) {
+            // Check if we should retry a failed tile
+            Long failedFrame = failedTiles.get(key);
+            boolean shouldRequest = !loadingTiles.contains(key);
+            
+            if (failedFrame != null) {
+                // Retry failed tiles after the retry delay
+                if (frameCounter - failedFrame > FAILED_TILE_RETRY_FRAMES) {
+                    failedTiles.remove(key);
+                    shouldRequest = true;
+                } else {
+                    shouldRequest = false;
+                }
+            }
+            
+            if (shouldRequest) {
                 requestTile(tileX, tileY, zoomLevel, 0);
             }
             
@@ -370,7 +412,7 @@ public class TileMapRenderer {
         int maxCoord = (1 << request.zoom) - 1;
         if (request.x < 0 || request.x > maxCoord || request.y < 0 || request.y > maxCoord) {
             loadingTiles.remove(request.key);
-            failedTiles.add(request.key);
+            failedTiles.put(request.key, frameCounter);
             return;
         }
 
@@ -385,8 +427,8 @@ public class TileMapRenderer {
             URL url = new URL(urlStr);
             conn = (HttpURLConnection) url.openConnection();
             conn.setRequestProperty("User-Agent", "MarineRadar/1.0 (LibGDX; Educational Project)");
-            conn.setConnectTimeout(10000);
-            conn.setReadTimeout(10000);
+            conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            conn.setReadTimeout(READ_TIMEOUT_MS);
             conn.connect();
 
             int responseCode = conn.getResponseCode();
@@ -420,18 +462,22 @@ public class TileMapRenderer {
                     } catch (Exception e) {
                         Gdx.app.error("TileMapRenderer", "Failed to create texture: " + e.getMessage());
                         loadingTiles.remove(tileKey);
-                        failedTiles.add(tileKey);
+                        failedTiles.put(tileKey, frameCounter);
                     }
                 });
             } else if (responseCode == 404) {
                 loadingTiles.remove(request.key);
-                failedTiles.add(request.key);
+                failedTiles.put(request.key, frameCounter);
             } else {
+                // Other errors - allow retry sooner
                 loadingTiles.remove(request.key);
+                failedTiles.put(request.key, frameCounter);
             }
 
         } catch (Exception e) {
+            // Network error - allow retry
             loadingTiles.remove(request.key);
+            failedTiles.put(request.key, frameCounter);
         } finally {
             if (conn != null) {
                 conn.disconnect();
@@ -559,7 +605,8 @@ public class TileMapRenderer {
         preloadVisibleTiles();
 
         // Clear failed tiles so they can be retried at new zoom
-        failedTiles.removeIf(key -> key.startsWith(oldZoom + "_"));
+        String prefix = oldZoom + "_";
+        failedTiles.keySet().removeIf(key -> key.startsWith(prefix));
     }
     
     /**
@@ -651,6 +698,14 @@ public class TileMapRenderer {
             camera.position.y = Math.max(halfHeight, Math.min(worldSize - halfHeight, camera.position.y));
         }
     }
+    
+    /**
+     * Public method to clamp camera to world bounds
+     */
+    public void clampCamera() {
+        clampCameraPosition();
+        camera.update();
+    }
 
     private byte[] readAllBytesFromStream(InputStream stream) throws Exception {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -672,6 +727,27 @@ public class TileMapRenderer {
 
     public int getZoomLevel() {
         return zoomLevel;
+    }
+    
+    /**
+     * Returns the number of tiles currently being downloaded
+     */
+    public int getLoadingTileCount() {
+        return loadingTiles.size();
+    }
+    
+    /**
+     * Returns the number of tiles in the cache
+     */
+    public int getCachedTileCount() {
+        return tileCache.size();
+    }
+    
+    /**
+     * Returns true if tiles are currently being loaded
+     */
+    public boolean isLoading() {
+        return !loadingTiles.isEmpty() || !downloadQueue.isEmpty();
     }
     
     public void setZoomLevel(int newZoomLevel) {

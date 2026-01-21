@@ -42,7 +42,6 @@ public class Ship {
     public List<double[]> locationHistory = new ArrayList<>();
     public float rotation = 0f; // Calculated rotation in degrees
     private long lastLocationUpdateTime = 0;
-    private long lastApiUpdateTime = 0; // Last time we received data from API
 
     // Timestamps
     public long timestamp;
@@ -111,7 +110,6 @@ public class Ship {
         this.heading = heading;
         this.navigationalStatus = navStatus;
         this.timestamp = currentTime;
-        this.lastApiUpdateTime = currentTime;
 
         // Update route destination based on course and speed
         routeInfo.updateDestination(lat, lon, course, speed);

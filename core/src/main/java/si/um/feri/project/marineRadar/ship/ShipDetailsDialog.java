@@ -62,9 +62,6 @@ public class ShipDetailsDialog extends Dialog {
             addInfoRow(content, "IMO Number:", String.valueOf(ship.imoNumber));
         }
         addInfoRow(content, "Type:", ship.getShipTypeDescription());
-        
-        //debug locations
-        addInfoRow(content, "Locations", String.valueOf(ship.locationHistory.size()));
 
         content.row();
 
