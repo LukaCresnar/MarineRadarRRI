@@ -142,6 +142,21 @@ public class ShipDetailsDialog extends Dialog {
             buttonTable.add(trackButton).pad(5).width(120);
             buttonTable.add(focusButton).pad(5).width(120);
             buttonTable.add(closeButton).pad(5).width(120);
+        } else {
+            // In compact mode we still want a simple close control for 3D overlay dialogs
+            Table contentTable = getContentTable();
+            contentTable.row();
+            TextButton compactClose = new TextButton("Close", getSkin());
+            compactClose.addListener(new ClickListener() {
+                @Override
+                public void clicked(InputEvent event, float x, float y) {
+                    if (closeListener != null) {
+                        closeListener.onClose();
+                    }
+                    hide();
+                }
+            });
+            contentTable.add(compactClose).right().padTop(8);
         }
     }
     

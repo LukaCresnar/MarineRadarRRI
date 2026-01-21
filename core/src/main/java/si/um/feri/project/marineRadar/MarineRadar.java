@@ -307,7 +307,8 @@ public class MarineRadar extends ApplicationAdapter {
         mode3DUI.pad(10);
         
         Table info3DPanel = new Table(skin);
-        info3DPanel.setBackground(defaultRectDrawable);
+        // Use white background for the 3D info/controls panel for better contrast
+        info3DPanel.setBackground(whiteDrawable);
         info3DPanel.pad(10);
         
         ship3DInfoLabel = new Label("3D View Mode", skin);
