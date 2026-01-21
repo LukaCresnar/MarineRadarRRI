@@ -27,13 +27,11 @@ public class ShipSearchPanel extends Table {
 
     private ShipSelectionListener selectionListener;
 
-    private long lastClickTime = 0;
-    private Ship lastClickedShip = null;
-    private static final long DOUBLE_CLICK_TIME = 300;
+
 
     public interface ShipSelectionListener {
         void onShipSelected(Ship ship);
-        void onShipDoubleClicked(Ship ship);
+        void onShipDetails(Ship ship);
         void onClose();
     }
 
@@ -158,28 +156,14 @@ public class ShipSearchPanel extends Table {
         row.addListener(new ClickListener() {
             @Override
             public void clicked(InputEvent event, float x, float y) {
-                long now = System.currentTimeMillis();
+                // Single click: select the ship and notify listener (no double-click behavior)
+                selectedShip = ship;
+                highlightSelectedRow();
 
-                // Double-click detection
-                if (lastClickedShip == ship && (now - lastClickTime) <= DOUBLE_CLICK_TIME) {
-                    // Double click: perform the double-click action (focus & 3D)
-                    if (selectionListener != null) {
-                        selectionListener.onShipDoubleClicked(ship);
-                    }
-                    // reset
-                    lastClickedShip = null;
-                    lastClickTime = 0;
-                } else {
-                    // Single click: select the ship (move to location) and highlight
-                    selectedShip = ship;
-                    highlightSelectedRow();
-
-                    if (selectionListener != null) {
-                        selectionListener.onShipSelected(ship);
-                    }
-
-                    lastClickedShip = ship;
-                    lastClickTime = now;
+                if (selectionListener != null) {
+                    selectionListener.onShipSelected(ship);
+                    // Also request opening details (listener will handle showing dialog)
+                    selectionListener.onShipDetails(ship);
                 }
             }
         });

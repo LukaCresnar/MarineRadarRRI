@@ -252,14 +252,29 @@ public class MarineRadar extends ApplicationAdapter {
         shipSearchPanel = new ShipSearchPanel(ships, skin, new ShipSearchPanel.ShipSelectionListener() {
             @Override
             public void onShipSelected(Ship ship) {
+                // Remember selected in the search panel
                 selectedSearchShip = ship;
+                shipSearchPanel.setSelectedShip(ship);
+
+                // Center camera on the ship's position
+                Vector2 pos = map.latLonToPixel(ship.lat, ship.lon);
+                camera.position.set(pos.x, pos.y, 0);
+                camera.update();
+
+                // Mark selection
+                if (selectedShip != null) {
+                    selectedShip.isSelected = false;
+                }
+                selectedShip = ship;
+                selectedShip.isSelected = true;
             }
 
             @Override
-            public void onShipDoubleClicked(Ship ship) {
-                selectedSearchShip = ship;
-                focusOnShip(ship);
+            public void onShipDetails(Ship ship) {
+                // Open ship details dialog after centering
+                showShipDetails(ship);
             }
+
             
             @Override
             public void onClose() {
@@ -1029,9 +1044,6 @@ public class MarineRadar extends ApplicationAdapter {
             return true;
         }
 
-        private long lastMapClickTime = 0;
-        private Ship lastMapClickedShip = null;
-
         @Override
         public boolean touchDown(int screenX, int screenY, int pointer, int button) {
             if (button == Input.Buttons.LEFT) {
@@ -1039,40 +1051,32 @@ public class MarineRadar extends ApplicationAdapter {
                 Ship clicked = findShipAt(worldPos.x, worldPos.y);
 
                 if (clicked != null) {
-                    long now = System.currentTimeMillis();
+                    // Left click: select the ship, center the camera, and open the details dialog
+                    if (button == Input.Buttons.LEFT) {
+                        Vector2 pos = map.latLonToPixel(clicked.lat, clicked.lon);
+                        camera.position.set(pos.x, pos.y, 0);
+                        camera.update();
 
-                    // Double-click on map: open ship details
-                    if (lastMapClickedShip == clicked && (now - lastMapClickTime) <= ShipSearchPanel.DOUBLE_CLICK_TIME) {
-                        // Clear previous selection
+                        if (selectedShip != null) {
+                            selectedShip.isSelected = false;
+                        }
+                        selectedShip = clicked;
+                        selectedShip.isSelected = true;
+
+                        showShipDetails(clicked);
+                        return true;
+                    }
+
+                    // Right click: also open ship details dialog (alternative access)
+                    if (button == Input.Buttons.RIGHT) {
                         if (selectedShip != null) {
                             selectedShip.isSelected = false;
                         }
                         selectedShip = clicked;
                         selectedShip.isSelected = true;
                         showShipDetails(clicked);
-                        // reset
-                        lastMapClickedShip = null;
-                        lastMapClickTime = 0;
                         return true;
                     }
-
-                    // Single click: move camera to ship location (do not open 3D)
-                    Vector2 pos = map.latLonToPixel(clicked.lat, clicked.lon);
-                    camera.position.set(pos.x, pos.y, 0);
-                    camera.update();
-
-                    // Mark selected
-                    if (selectedShip != null) {
-                        selectedShip.isSelected = false;
-                    }
-                    selectedShip = clicked;
-                    selectedShip.isSelected = true;
-
-                    // store last click for double-click detection
-                    lastMapClickedShip = clicked;
-                    lastMapClickTime = now;
-
-                    return true;
                 }
             }
             return false;
