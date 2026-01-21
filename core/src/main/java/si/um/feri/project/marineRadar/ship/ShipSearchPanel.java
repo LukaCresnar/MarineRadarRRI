@@ -24,6 +24,8 @@ public class ShipSearchPanel extends Table {
     private List<Table> shipRows;
     private Table shipListContainer;
     private ScrollPane scrollPane;
+    private TextButton filterButton;
+    private boolean filterHighSpeed = false;
 
     private ShipSelectionListener selectionListener;
 
@@ -81,7 +83,19 @@ public class ShipSearchPanel extends Table {
         searchField = new TextField("", skin);
         searchField.setMaxLength(50);
         searchField.setMessageText("Search ships...");
-        add(searchField).colspan(2).width(300).padTop(10).row();
+        add(searchField).width(200).padTop(10);
+        
+        // Filter button for ships above 5 knots
+        filterButton = new TextButton("Moving: OFF", skin);
+        filterButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                filterHighSpeed = !filterHighSpeed;
+                updateFilterButtonAppearance();
+                updateShipList();
+            }
+        });
+        add(filterButton).width(100).padTop(10).padLeft(5).row();
 
         shipListContainer = new Table();
         shipListContainer.left().top();
@@ -112,6 +126,13 @@ public class ShipSearchPanel extends Table {
             filteredShips = allShips.stream()
                 .filter(ship -> ship.name.toLowerCase().contains(searchText) ||
                                ship.mmsi.contains(searchText))
+                .collect(Collectors.toList());
+        }
+        
+        // Apply speed filter if enabled
+        if (filterHighSpeed) {
+            filteredShips = filteredShips.stream()
+                .filter(ship -> ship.speed > 5.0)
                 .collect(Collectors.toList());
         }
 
@@ -194,5 +215,15 @@ public class ShipSearchPanel extends Table {
 
     public void refreshShips() {
         updateShipList();
+    }
+    
+    private void updateFilterButtonAppearance() {
+        if (filterHighSpeed) {
+            filterButton.setText("Moving: ON");
+            filterButton.setColor(0.2f, 0.8f, 0.2f, 1f); // Green when active
+        } else {
+            filterButton.setText("Moving: OFF");
+            filterButton.setColor(1f, 1f, 1f, 1f); // Normal color when inactive
+        }
     }
 }

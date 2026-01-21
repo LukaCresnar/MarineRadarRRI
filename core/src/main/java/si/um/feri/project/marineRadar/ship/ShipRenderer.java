@@ -118,7 +118,7 @@ public class ShipRenderer {
             }
             shapeRenderer.end();
         }
-
+        
         // Draw heading indicators
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         for (Ship ship : ships) {
@@ -127,7 +127,7 @@ public class ShipRenderer {
             }
         }
         shapeRenderer.end();
-
+         
         // Draw path (location history) for selected ship
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         for (Ship ship : ships) {
@@ -142,6 +142,7 @@ public class ShipRenderer {
                     shapeRenderer.line(p0.x, p0.y, p1.x, p1.y);
                 }
 
+                /* 
                 // Debug overlays: show movement-based rotation and recent segment bearing
                 // Compute last segment
                 double[] last = hist.get(hist.size() - 1);
@@ -166,6 +167,7 @@ public class ShipRenderer {
                 float cx = lastP.x + MathUtils.cos(courseScreenAng) * len;
                 float cy = lastP.y + MathUtils.sin(courseScreenAng) * len;
 
+                
                 // Draw movement bearing in magenta
                 shapeRenderer.setColor(1f, 0f, 1f, 1f);
                 shapeRenderer.line(lastP.x, lastP.y, mx, my);
@@ -173,11 +175,9 @@ public class ShipRenderer {
                 // Draw last-segment bearing in blue
                 shapeRenderer.setColor(0f, 0f, 1f, 1f);
                 shapeRenderer.line(lastP.x, lastP.y, sx, sy);
-
-                // Draw course in orange (heading color)
-                shapeRenderer.setColor(HEADING_LINE);
-                shapeRenderer.line(lastP.x, lastP.y, cx, cy);
+                */
             }
+                
         }
         shapeRenderer.end();
     }

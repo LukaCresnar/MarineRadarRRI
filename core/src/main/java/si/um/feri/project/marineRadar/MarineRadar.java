@@ -383,7 +383,7 @@ public class MarineRadar extends ApplicationAdapter {
         contentTable.padBottom(20);
 
         // Buttons
-        TextButton helpButton = new TextButton("Help", skin);
+        TextButton helpButton = new TextButton("Help & Credits", skin);
         helpButton.addListener(new ClickListener() {
             @Override
             public void clicked(InputEvent event, float x, float y) {
@@ -859,16 +859,14 @@ public class MarineRadar extends ApplicationAdapter {
     private void showHelpScreen() {
         Dialog dialog = new Dialog("Controls", skin);
         dialog.text(
-            "NAVIGATION:\n" +
+            "Marine Radar\n" +
+                "Team BlueSignal\n" +
+                "Dragan Stojanovic & Luka Cresnar\n\n" +
+                "NAVIGATION:\n" +
                 "• Mouse drag - move map\n" +
                 "• Scroll wheel - zoom\n" +
                 "• Arrow keys - move\n" +
                 "• A / S - zoom\n\n" +
-                "SHIPS:\n" +
-                "• Click ship - details\n" +
-                "• Routes show origin → destination\n" +
-                "• Green line: traveled\n" +
-                "• Cyan line: projected route\n\n" +
                 "FEATURES:\n" +
                 "• Real-time AIS data\n" +
                 "• 3D ship view\n" +
